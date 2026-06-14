@@ -28,6 +28,9 @@ type Server struct {
 }
 
 func New(ctx context.Context, cfg config.Config) (*Server, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel(cfg.LogLevel)}))
 	slog.SetDefault(logger)
 	db, err := gormstore.Open(ctx, cfg.DSN)

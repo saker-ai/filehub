@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/saker-ai/internaljwt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,6 +24,7 @@ type Config struct {
 	LogLevel              string             `json:"log_level" yaml:"log_level"`
 	DSN                   string             `json:"dsn" yaml:"dsn"`
 	Storage               StorageConfig      `json:"storage" yaml:"storage"`
+	APIKeyAuthEnabled     bool               `json:"api_key_auth_enabled" yaml:"api_key_auth_enabled"`
 	APIKeys               []string           `json:"api_keys" yaml:"api_keys"`
 	InternalAuth          InternalAuthConfig `json:"internal_auth" yaml:"internal_auth"`
 	PresignSecret         string             `json:"presign_secret" yaml:"presign_secret"`
@@ -83,6 +85,9 @@ func Load(path string) (Config, error) {
 	}
 	applyEnv(&cfg)
 	cfg.withDefaults()
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -92,7 +97,7 @@ func Defaults() Config {
 		LogLevel:              "info",
 		DSN:                   "sqlite://.synapse/stack/assethub.db",
 		Storage:               StorageConfig{Backend: BackendOSFS, DataDir: ".synapse/stack/assethub-data"},
-		APIKeys:               []string{"dev-assethub-key"},
+		APIKeys:               nil,
 		InternalAuth:          InternalAuthConfig{Issuer: "synapse", Audience: "assethub", TTL: 5 * time.Minute},
 		PresignSecret:         "assethub-presign-secret",
 		PresignTTL:            7 * 24 * time.Hour,
@@ -128,9 +133,6 @@ func (c *Config) withDefaults() {
 	}
 	if c.Storage.DataDir == "" {
 		c.Storage.DataDir = def.Storage.DataDir
-	}
-	if len(c.APIKeys) == 0 {
-		c.APIKeys = def.APIKeys
 	}
 	if c.InternalAuth.Issuer == "" {
 		c.InternalAuth.Issuer = def.InternalAuth.Issuer
@@ -182,6 +184,24 @@ func (c *Config) withDefaults() {
 	}
 }
 
+func (c Config) Validate() error {
+	if c.InternalAuth.Enabled {
+		if strings.TrimSpace(c.InternalAuth.Issuer) == "" {
+			return fmt.Errorf("internal_auth.issuer is required when internal_auth.enabled=true")
+		}
+		if strings.TrimSpace(c.InternalAuth.Audience) == "" {
+			return fmt.Errorf("internal_auth.audience is required when internal_auth.enabled=true")
+		}
+		if len(internaljwt.NormalizeMasterSecret(c.InternalAuth.MasterSecret)) < 32 {
+			return fmt.Errorf("internal_auth.master_secret must be at least 32 bytes when internal_auth.enabled=true")
+		}
+	}
+	if c.APIKeyAuthEnabled && len(c.APIKeys) == 0 {
+		return fmt.Errorf("api_keys is required when api_key_auth_enabled=true")
+	}
+	return nil
+}
+
 func applyEnv(c *Config) {
 	setString := func(key string, dst *string) {
 		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -210,6 +230,7 @@ func applyEnv(c *Config) {
 	setStringIfEmpty("ASSETHUB_OSS_ACCESS_KEY", &c.Storage.S3AccessKey)
 	setStringIfEmpty("ASSETHUB_OSS_SECRET_KEY", &c.Storage.S3SecretKey)
 	setString("ASSETHUB_PRESIGN_SECRET", &c.PresignSecret)
+	setBool("ASSETHUB_API_KEY_AUTH_ENABLED", &c.APIKeyAuthEnabled)
 	if v := csvEnv("ASSETHUB_API_KEYS"); len(v) > 0 {
 		c.APIKeys = v
 	}

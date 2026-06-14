@@ -222,6 +222,8 @@ func TestRouterNativeS3MultipartUpload(t *testing.T) {
 	cfg.Storage.S3Region = "us-east-1"
 	cfg.Storage.S3AccessKey = "test-key"
 	cfg.Storage.S3SecretKey = "test-secret"
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
 	ts := newTestServerWithConfig(t, cfg)
 
 	create := ts.request(t, http.MethodPost, "/v1/uploads", bytes.NewBufferString(`{"filename":"cloud.txt","purpose":"media","content_type":"text/plain","total_bytes":11}`), map[string]string{"Content-Type": "application/json"})
@@ -428,6 +430,8 @@ func TestRouterVideoThumbnailAndMetadata(t *testing.T) {
 func TestRouterStorageQuota(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.MaxStorageBytes = 10
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
 	ts := newTestServerWithConfig(t, cfg)
 
 	ok := ts.uploadAssetStatus(t, "/v1/assets?on_duplicate=allow", "small.txt", []byte("123456"), map[string]string{"purpose": "media"})
@@ -446,6 +450,8 @@ func TestRouterStorageQuota(t *testing.T) {
 func TestRouterChunkCompleteStorageQuota(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.MaxStorageBytes = 10
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
 	ts := newTestServerWithConfig(t, cfg)
 
 	create := ts.request(t, http.MethodPost, "/v1/uploads", bytes.NewBufferString(`{"filename":"large.txt","purpose":"media","content_type":"text/plain","total_bytes":11}`), map[string]string{"Content-Type": "application/json"})
@@ -488,6 +494,35 @@ func TestRouterAuth(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"request_id":"req-test"`) {
 		t.Fatalf("error body missing request ID: %s", rec.Body.String())
+	}
+}
+
+func TestRouterAPIKeyAuthDisabledByDefault(t *testing.T) {
+	cfg := config.Defaults()
+	if cfg.APIKeyAuthEnabled {
+		t.Fatal("API key auth enabled by default")
+	}
+	cfg.APIKeys = []string{"test-key"}
+	ts := newTestServerWithConfig(t, cfg)
+
+	rec := ts.request(t, http.MethodGet, "/v1/assets", nil, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "invalid_api_key") {
+		t.Fatalf("API key path was used while disabled: %s", rec.Body.String())
+	}
+}
+
+func TestRouterAPIKeyAuthRequiresExplicitEnable(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	ts := newTestServerWithConfig(t, cfg)
+
+	rec := ts.request(t, http.MethodGet, "/v1/assets", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -609,7 +644,10 @@ type testServer struct {
 
 func newTestServer(t *testing.T) *testServer {
 	t.Helper()
-	return newTestServerWithConfig(t, config.Defaults())
+	cfg := config.Defaults()
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	return newTestServerWithConfig(t, cfg)
 }
 
 func newTestServerWithConfig(t *testing.T, cfg config.Config) *testServer {

@@ -54,14 +54,14 @@ func RegisterHumaDocs(engine *gin.Engine) HumaSetup {
 		"BearerAuth": {
 			Type:         "http",
 			Scheme:       "bearer",
-			BearerFormat: "AssetHub API key",
-			Description:  "Bearer token for /v1 endpoints.",
+			BearerFormat: "Internal JWT or migration API key",
+			Description:  "Internal JWT for /v1 endpoints. AssetHub API keys are migration-only and require explicit enablement.",
 		},
 		"APIKeyAuth": {
 			Type:        "apiKey",
 			In:          "header",
 			Name:        "X-API-Key",
-			Description: "AssetHub API key header.",
+			Description: "Migration-only AssetHub API key header. Requires explicit enablement.",
 		},
 	}
 

@@ -4,6 +4,7 @@
 export
 
 ASSETHUB_ADDR ?= :17040
+ASSETHUB_API_KEY_AUTH_ENABLED ?= true
 ASSETHUB_API_KEYS ?= dev-assethub-key
 ASSETHUB_PRESIGN_SECRET ?= assethub-presign-secret
 ASSETHUB_DSN ?= sqlite://.synapse/stack/assethub.db
@@ -65,6 +66,7 @@ free-run-port:
 quickstart: build runtime-dirs
 	@echo "Starting AssetHub on $(ASSETHUB_ADDR) (SQLite + $(ASSETHUB_STORAGE_BACKEND) storage)..."
 	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
+	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
 	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
 	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
 	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
@@ -82,6 +84,7 @@ setup: deps build
 # Build frontend + Go binary, then start server
 run: build runtime-dirs free-run-port
 	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
+	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
 	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
 	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
 	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
@@ -92,6 +95,7 @@ run: build runtime-dirs free-run-port
 # Start server in development mode
 dev: build runtime-dirs
 	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
+	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
 	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
 	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
 	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
@@ -106,6 +110,7 @@ dev-frontend:
 # Start Go backend only (for development with frontend dev server)
 dev-backend: build-go runtime-dirs
 	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
+	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
 	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
 	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
 	ASSETHUB_DSN="$(ASSETHUB_DSN)" \

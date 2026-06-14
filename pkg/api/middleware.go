@@ -146,21 +146,26 @@ func Auth(cfg config.Config) gin.HandlerFunc {
 				return
 			}
 		}
-		key := c.GetHeader("X-API-Key")
-		if key == "" {
-			auth := c.GetHeader("Authorization")
-			if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
-				key = strings.TrimSpace(auth[len("Bearer "):])
+		if cfg.APIKeyAuthEnabled {
+			key := c.GetHeader("X-API-Key")
+			if key == "" {
+				auth := c.GetHeader("Authorization")
+				if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+					key = strings.TrimSpace(auth[len("Bearer "):])
+				}
 			}
-		}
-		for _, allowed := range cfg.APIKeys {
-			if subtle.ConstantTimeCompare([]byte(key), []byte(allowed)) == 1 {
-				c.Set(tenantKey, "default")
-				c.Next()
-				return
+			for _, allowed := range cfg.APIKeys {
+				if subtle.ConstantTimeCompare([]byte(key), []byte(allowed)) == 1 {
+					c.Set(tenantKey, "default")
+					c.Next()
+					return
+				}
 			}
+			writeError(c, http.StatusUnauthorized, "invalid_api_key", "invalid API key")
+			c.Abort()
+			return
 		}
-		writeError(c, http.StatusUnauthorized, "invalid_api_key", "invalid API key")
+		writeError(c, http.StatusUnauthorized, "authentication_required", "authentication required")
 		c.Abort()
 	}
 }
@@ -168,14 +173,23 @@ func Auth(cfg config.Config) gin.HandlerFunc {
 func scopeAllows(scopes []string, method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodHead:
-		return internaljwt.HasScope(scopes, "assethub:read") ||
-			internaljwt.HasScope(scopes, "assethub:upload") ||
-			internaljwt.HasScope(scopes, "assethub:write")
+		return internaljwt.HasAnyScope(scopes,
+			internaljwt.ScopeAssetHubRead,
+			internaljwt.ScopeAssetHubUpload,
+			internaljwt.ScopeAssetHubWrite,
+			internaljwt.ScopeAssetHubAdmin,
+		)
 	case http.MethodPost, http.MethodPut:
-		return internaljwt.HasScope(scopes, "assethub:write") ||
-			internaljwt.HasScope(scopes, "assethub:upload")
+		return internaljwt.HasAnyScope(scopes,
+			internaljwt.ScopeAssetHubUpload,
+			internaljwt.ScopeAssetHubWrite,
+			internaljwt.ScopeAssetHubAdmin,
+		)
 	case http.MethodPatch, http.MethodDelete:
-		return internaljwt.HasScope(scopes, "assethub:write")
+		return internaljwt.HasAnyScope(scopes,
+			internaljwt.ScopeAssetHubWrite,
+			internaljwt.ScopeAssetHubAdmin,
+		)
 	default:
 		return false
 	}

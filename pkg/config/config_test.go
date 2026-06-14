@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,6 +55,40 @@ func TestDefaultsPresignTTL(t *testing.T) {
 	cfg := Defaults()
 	if cfg.PresignTTL != 7*24*time.Hour {
 		t.Fatalf("presign ttl = %s", cfg.PresignTTL)
+	}
+}
+
+func TestDefaultsDisableAssetHubAPIKeyAuth(t *testing.T) {
+	cfg := Defaults()
+	if cfg.APIKeyAuthEnabled {
+		t.Fatal("API key auth enabled by default")
+	}
+	if len(cfg.APIKeys) != 0 {
+		t.Fatalf("api keys = %v, want empty defaults", cfg.APIKeys)
+	}
+}
+
+func TestLoadRejectsInternalAuthWithoutMasterSecret(t *testing.T) {
+	t.Setenv("ASSETHUB_INTERNAL_AUTH_ENABLED", "true")
+
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("Load succeeded without internal auth master secret")
+	}
+	if !strings.Contains(err.Error(), "internal_auth.master_secret") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLoadRejectsEnabledAPIKeyAuthWithoutKeys(t *testing.T) {
+	t.Setenv("ASSETHUB_API_KEY_AUTH_ENABLED", "true")
+
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("Load succeeded with API key auth enabled and no keys")
+	}
+	if !strings.Contains(err.Error(), "api_keys") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
