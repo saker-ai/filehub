@@ -1,0 +1,39 @@
+{
+  "name": "assethub-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AssetHub Web UI",
+  "license": "Apache-2.0",
+  "packageManager": "npm@10.9.7",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@google/model-viewer": "^4.3.1",
+    "@rolldown/binding-linux-x64-gnu": "^1.1.1",
+    "dompurify": "^3.4.10",
+    "i18next": "^26.3.1",
+    "lightningcss-linux-x64-gnu": "^1.32.0",
+    "marked": "^18.0.5",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-i18next": "^17.0.8",
+    "react-router-dom": "^7.14.0",
+    "shiki": "^4.2.0",
+    "wavesurfer.js": "^7.12.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  }
+}
