@@ -19,6 +19,7 @@ export type AssetList = {
   object: 'list'
   data: Asset[]
   has_more: boolean
+  next_cursor?: string
 }
 
 export type AssetStats = {
@@ -39,6 +40,7 @@ export type AssetFilter = {
   content_type?: string
   meta_key?: string
   meta_value?: string
+  cursor?: string
   limit?: number
   offset?: number
 }
@@ -187,7 +189,7 @@ export async function bulkDelete(ids: string[]): Promise<BulkDeleteResult> {
   })
 }
 
-export async function presignAsset(id: string, expiresIn = '1h'): Promise<{ url: string; expires_at: number }> {
+export async function presignAsset(id: string, expiresIn = '168h'): Promise<{ url: string; expires_at: number }> {
   return request(`${BASE}/assets/${encodeURIComponent(id)}/presign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -96,6 +97,13 @@ type Asset struct {
 	ExpiresAt   *time.Time
 }
 
+func CursorFromAsset(a *Asset) string {
+	if a == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%s", a.CreatedAt.UnixNano(), a.ID)
+}
+
 type Tag struct {
 	ID   int64
 	Name string
@@ -149,6 +157,7 @@ type AssetFilter struct {
 	Limit       int
 	Offset      int
 	Order       string
+	Cursor      string
 	After       string
 	Before      string
 }

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Asset, getStats, listAssets, type AssetStats } from '../api/client'
 import { AssetCard, formatBytes } from '../components/AssetCard'
-import { AssetDetail } from './AssetDetail'
+
+const AssetDetail = lazy(() => import('./AssetDetail').then((module) => ({ default: module.AssetDetail })))
 
 export default function Home() {
   const { t } = useTranslation()
@@ -40,7 +41,11 @@ export default function Home() {
         <h2>{t('recentAssets')}</h2>
         <div className="asset-grid">{assets.map((asset) => <AssetCard key={asset.id} asset={asset} onOpen={() => setActive(asset)} />)}</div>
       </section>
-      {active ? <AssetDetail assetID={active.id} onClose={() => setActive(null)} /> : null}
+      {active ? (
+        <Suspense fallback={<p className="muted">{t('loading')}</p>}>
+          <AssetDetail assetID={active.id} onClose={() => setActive(null)} />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

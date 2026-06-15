@@ -1,16 +1,9 @@
-import '@google/model-viewer'
-import { Marked } from 'marked'
-import DOMPurify from 'dompurify'
-import WaveSurfer from 'wavesurfer.js'
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { codeToHtml } from 'shiki'
 import { assetHubPath, authHeaders, deleteAsset, fetchAssetBlob, getAsset, presignAsset, updateAsset, type Asset } from '../api/client'
 import { CodeBlock } from '../components/CodeBlock'
 import { formatBytes } from '../components/AssetCard'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo, useAuthObjectURL } from '../components/AuthMedia'
-
-const marked = new Marked()
 
 export function AssetDetail({ assetID, onClose, onNavigate }: { assetID: string; onClose: () => void; onNavigate?: (direction: -1 | 1) => void }) {
   const { t } = useTranslation()
@@ -167,15 +160,24 @@ function AudioPreview({ src }: { src: string }) {
   useEffect(() => {
     if (!containerRef.current || !url) return
     setReady(false)
-    const wave = WaveSurfer.create({
-      container: containerRef.current,
-      waveColor: '#8aa4bf',
-      progressColor: '#1f7a8c',
-      height: 96,
-      url,
+    let destroyed = false
+    let wave: { destroy: () => void } | null = null
+    void import('wavesurfer.js').then(({ default: WaveSurfer }) => {
+      if (destroyed || !containerRef.current) return
+      const created = WaveSurfer.create({
+        container: containerRef.current,
+        waveColor: '#8aa4bf',
+        progressColor: '#1f7a8c',
+        height: 96,
+        url,
+      })
+      wave = created
+      created.on('ready', () => setReady(true))
     })
-    wave.on('ready', () => setReady(true))
-    return () => wave.destroy()
+    return () => {
+      destroyed = true
+      wave?.destroy()
+    }
   }, [url])
 
   return (
@@ -189,8 +191,18 @@ function AudioPreview({ src }: { src: string }) {
 
 function ModelPreview({ src }: { src: string }) {
   const { url, error } = useAuthObjectURL(src)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void import('@google/model-viewer').then(() => {
+      if (!cancelled) setReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   if (error) return <span className="preview-error">{error}</span>
-  if (!url) return <span className="preview-loading">Loading</span>
+  if (!url || !ready) return <span className="preview-loading">Loading</span>
   return createElement('model-viewer', { src: url, 'camera-controls': true, ar: true, 'auto-rotate': true })
 }
 
@@ -200,9 +212,22 @@ function TextPreview({ src, filename }: { src: string; filename: string }) {
   useEffect(() => {
     void fetch(src, { headers: authHeaders() }).then((response) => response.text()).then(setText)
   }, [src])
-  const html = useMemo(() => {
-    if (!/\.md$/i.test(filename)) return ''
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string)
+  const [html, setHTML] = useState('')
+
+  useEffect(() => {
+    if (!text || !/\.md$/i.test(filename)) {
+      setHTML('')
+      return
+    }
+    let cancelled = false
+    void Promise.all([import('marked'), import('dompurify')]).then(([{ Marked }, { default: DOMPurify }]) => {
+      if (cancelled) return
+      const marked = new Marked()
+      setHTML(DOMPurify.sanitize(marked.parse(text, { async: false }) as string))
+    })
+    return () => {
+      cancelled = true
+    }
   }, [filename, text])
 
   useEffect(() => {
@@ -211,7 +236,18 @@ function TextPreview({ src, filename }: { src: string; filename: string }) {
       return
     }
     const lang = languageFor(filename)
-    void codeToHtml(text, { lang, theme: 'github-dark' }).then((html) => setHighlighted(DOMPurify.sanitize(html)))
+    if (!lang) {
+      setHighlighted('')
+      return
+    }
+    let cancelled = false
+    void Promise.all([highlightCode(text, lang), import('dompurify')]).then(([html, { default: DOMPurify }]) => {
+      if (cancelled) return
+      setHighlighted(DOMPurify.sanitize(html))
+    })
+    return () => {
+      cancelled = true
+    }
   }, [filename, text])
 
   if (/\.md$/i.test(filename)) {
@@ -258,10 +294,38 @@ function languageFor(filename: string) {
   if (/\.go$/i.test(filename)) return 'go'
   if (/\.py$/i.test(filename)) return 'python'
   if (/\.sh$/i.test(filename)) return 'bash'
-  return 'text'
+  return ''
 }
 
 function formatTimestamp(value: number) {
   if (!value) return '-'
   return new Date(value * 1000).toLocaleString()
+}
+
+let highlighterPromise: Promise<{ codeToHtml: (code: string, options: { lang: string; theme: string }) => string }> | null = null
+
+async function highlightCode(code: string, lang: string) {
+  const highlighter = await loadHighlighter()
+  return highlighter.codeToHtml(code, { lang, theme: 'github-dark' })
+}
+
+async function loadHighlighter() {
+  highlighterPromise ||= Promise.all([
+    import('shiki/core'),
+    import('@shikijs/engine-javascript'),
+    import('shiki/themes/github-dark.mjs'),
+    import('shiki/langs/json.mjs'),
+    import('shiki/langs/yaml.mjs'),
+    import('shiki/langs/xml.mjs'),
+    import('shiki/langs/tsx.mjs'),
+    import('shiki/langs/jsx.mjs'),
+    import('shiki/langs/go.mjs'),
+    import('shiki/langs/python.mjs'),
+    import('shiki/langs/bash.mjs'),
+  ]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }, theme, json, yaml, xml, tsx, jsx, go, python, bash]) => createHighlighterCore({
+    themes: [theme.default],
+    langs: [json.default, yaml.default, xml.default, tsx.default, jsx.default, go.default, python.default, bash.default],
+    engine: createJavaScriptRegexEngine(),
+  }))
+  return highlighterPromise
 }

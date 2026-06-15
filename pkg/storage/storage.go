@@ -140,19 +140,24 @@ func listenBaseURL(addr string) string {
 }
 
 func (s *Store) Put(ctx context.Context, key string, r io.Reader) (int64, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return 0, fmt.Errorf("read object: %w", err)
-	}
 	if s.nativeObjectStore() {
+		body, bytesWritten, cleanup, err := seekableBody(r)
+		if err != nil {
+			return 0, fmt.Errorf("prepare object body: %w", err)
+		}
+		defer cleanup()
 		if _, err := s.s3Client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(s.s3Bucket),
 			Key:    aws.String(s.objectKey(key)),
-			Body:   bytes.NewReader(data),
+			Body:   body,
 		}); err != nil {
 			return 0, fmt.Errorf("put object: %w", err)
 		}
-		return int64(len(data)), nil
+		return bytesWritten, nil
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return 0, fmt.Errorf("read object: %w", err)
 	}
 	if err := s.s2.Put(ctx, s2.NewObjectBytes(s.objectKey(key), data)); err != nil {
 		return 0, fmt.Errorf("put object: %w", err)
@@ -354,16 +359,17 @@ func (s *Store) UploadPart(ctx context.Context, key, uploadID string, partNum in
 	if !s.NativeMultipartSupported() {
 		return "", 0, fmt.Errorf("native multipart unavailable for backend %s", s.backend)
 	}
-	data, err := io.ReadAll(r)
+	body, bytesWritten, cleanup, err := seekableBody(r)
 	if err != nil {
-		return "", 0, fmt.Errorf("read multipart part: %w", err)
+		return "", 0, fmt.Errorf("prepare multipart part: %w", err)
 	}
+	defer cleanup()
 	out, err := s.s3Client.UploadPart(ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(s.s3Bucket),
 		Key:        aws.String(s.objectKey(key)),
 		UploadId:   aws.String(uploadID),
 		PartNumber: aws.Int32(int32(partNum)),
-		Body:       bytes.NewReader(data),
+		Body:       body,
 	})
 	if err != nil {
 		return "", 0, fmt.Errorf("upload part: %w", err)
@@ -372,7 +378,7 @@ func (s *Store) UploadPart(ctx context.Context, key, uploadID string, partNum in
 	if out.ETag != nil {
 		etag = strings.Trim(*out.ETag, `"`)
 	}
-	return etag, int64(len(data)), nil
+	return etag, bytesWritten, nil
 }
 
 func (s *Store) CompleteMultipartUpload(ctx context.Context, key, uploadID string, parts []MultipartPart) error {
@@ -464,4 +470,46 @@ func ChunkPrefix(uploadID string) string {
 
 func ReaderFromBytes(data []byte) io.Reader {
 	return bytes.NewReader(data)
+}
+
+func seekableBody(r io.Reader) (io.ReadSeeker, int64, func(), error) {
+	if seeker, ok := r.(io.ReadSeeker); ok {
+		start, err := seeker.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return nil, 0, func() {}, err
+		}
+		end, err := seeker.Seek(0, io.SeekEnd)
+		if err != nil {
+			return nil, 0, func() {}, err
+		}
+		if _, err := seeker.Seek(start, io.SeekStart); err != nil {
+			return nil, 0, func() {}, err
+		}
+		return seeker, end - start, func() {}, nil
+	}
+	tmp, err := os.CreateTemp("", "assethub-s3-body-*")
+	if err != nil {
+		return nil, 0, func() {}, err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			name := tmp.Name()
+			_ = tmp.Close()
+			_ = os.Remove(name)
+		}
+	}()
+	n, err := io.Copy(tmp, r)
+	if err != nil {
+		return nil, 0, func() {}, err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, func() {}, err
+	}
+	ok = true
+	return tmp, n, func() {
+		name := tmp.Name()
+		_ = tmp.Close()
+		_ = os.Remove(name)
+	}, nil
 }

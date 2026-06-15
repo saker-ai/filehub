@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,10 +42,14 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("database ping: %w", err)
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&AssetModel{}, &TagModel{}, &AssetTagModel{}, &UploadSessionModel{}, &UploadPartModel{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&AssetModel{}, &TagModel{}, &AssetTagModel{}, &AssetMetadataModel{}, &UploadSessionModel{}, &UploadPartModel{}); err != nil {
 		return nil, fmt.Errorf("database migrate: %w", err)
 	}
-	return &Store{db: db}, nil
+	out := &Store{db: db}
+	if err := out.ensureMetadataIndex(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func openDB(dsn string) (*gorm.DB, error) {
@@ -102,11 +108,16 @@ func (s *Store) Create(ctx context.Context, a *store.Asset) error {
 		a.Metadata = store.JSONMap{}
 	}
 	m := fromAsset(a)
-	if err := s.db.WithContext(ctx).Create(&m).Error; err != nil {
-		if isUniqueConstraintError(err) {
-			return store.ErrConflict
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&m).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return store.ErrConflict
+			}
+			return fmt.Errorf("create asset: %w", err)
 		}
-		return fmt.Errorf("create asset: %w", err)
+		return replaceMetadataIndex(tx, a.ID, a.Metadata)
+	}); err != nil {
+		return err
 	}
 	if len(a.Tags) > 0 {
 		names := make([]string, 0, len(a.Tags))
@@ -161,8 +172,11 @@ func (s *Store) List(ctx context.Context, tenantID string, filter store.AssetFil
 	}
 	order := "created_at DESC"
 	if strings.EqualFold(filter.Order, "asc") {
-		order = "created_at ASC"
+		order = "created_at ASC, id ASC"
+	} else {
+		order = "created_at DESC, id DESC"
 	}
+	q = applyCursor(q, filter)
 	var models []AssetModel
 	if err := q.Order(order).Limit(limit + 1).Offset(filter.Offset).Find(&models).Error; err != nil {
 		return nil, false, fmt.Errorf("list assets: %w", err)
@@ -224,32 +238,30 @@ func applyMetadataFilter(q *gorm.DB, f store.MetadataFilter) *gorm.DB {
 	if key == "" {
 		return q
 	}
-	keyJSON, err := json.Marshal(key)
-	if err != nil {
-		return q
-	}
-	prefix := escapeLike(string(keyJSON) + ":")
+	sub := q.Session(&gorm.Session{NewDB: true}).Model(&AssetMetadataModel{}).Select("asset_id")
 	if !f.HasValue {
-		return q.Where(`metadata LIKE ? ESCAPE '\'`, "%"+prefix+"%")
+		return q.Where("id IN (?)", sub.Where("key = ?", key))
 	}
-	valueJSON, err := json.Marshal(f.Value)
-	if err != nil {
+	valueType, valueText, ok := metadataValueParts(f.Value)
+	if !ok {
 		return q
 	}
-	return q.Where(`metadata LIKE ? ESCAPE '\'`, "%"+prefix+escapeLike(string(valueJSON))+"%")
+	return q.Where("id IN (?)", sub.Where("key = ? AND value_type = ? AND value_text = ?", key, valueType, valueText))
 }
 
-func escapeLike(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		switch r {
-		case '\\', '%', '_':
-			b.WriteByte('\\')
-		}
-		b.WriteRune(r)
+func applyCursor(q *gorm.DB, f store.AssetFilter) *gorm.DB {
+	cursor := strings.TrimSpace(f.Cursor)
+	if cursor == "" {
+		return q
 	}
-	return b.String()
+	createdAt, id, ok := decodeCursor(cursor)
+	if !ok {
+		return q
+	}
+	if strings.EqualFold(f.Order, "asc") {
+		return q.Where("(created_at > ? OR (created_at = ? AND id > ?))", createdAt, createdAt, id)
+	}
+	return q.Where("(created_at < ? OR (created_at = ? AND id < ?))", createdAt, createdAt, id)
 }
 
 func (s *Store) Update(ctx context.Context, a *store.Asset) error {
@@ -275,7 +287,7 @@ func (s *Store) Update(ctx context.Context, a *store.Asset) error {
 		if res.RowsAffected == 0 {
 			return store.ErrNotFound
 		}
-		return nil
+		return replaceMetadataIndex(tx, a.ID, a.Metadata)
 	})
 	if err != nil {
 		return fmt.Errorf("update asset: %w", err)
@@ -286,6 +298,9 @@ func (s *Store) Update(ctx context.Context, a *store.Asset) error {
 func (s *Store) Delete(ctx context.Context, tenantID, id string) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("asset_id = ?", id).Delete(&AssetTagModel{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("asset_id = ?", id).Delete(&AssetMetadataModel{}).Error; err != nil {
 			return err
 		}
 		res := tx.Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&AssetModel{})
@@ -301,6 +316,131 @@ func (s *Store) Delete(ctx context.Context, tenantID, id string) error {
 		return fmt.Errorf("delete asset: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) ensureMetadataIndex(ctx context.Context) error {
+	var assets int64
+	if err := s.db.WithContext(ctx).Model(&AssetModel{}).Count(&assets).Error; err != nil {
+		return fmt.Errorf("count assets for metadata index: %w", err)
+	}
+	if assets == 0 {
+		return nil
+	}
+	var indexed int64
+	if err := s.db.WithContext(ctx).Model(&AssetMetadataModel{}).Count(&indexed).Error; err != nil {
+		return fmt.Errorf("count metadata index: %w", err)
+	}
+	if indexed > 0 {
+		return nil
+	}
+	var models []AssetModel
+	if err := s.db.WithContext(ctx).Find(&models).Error; err != nil {
+		return fmt.Errorf("load assets for metadata index: %w", err)
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, model := range models {
+			if err := replaceMetadataIndex(tx, model.ID, model.Metadata); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func replaceMetadataIndex(tx *gorm.DB, assetID string, metadata store.JSONMap) error {
+	if err := tx.Where("asset_id = ?", assetID).Delete(&AssetMetadataModel{}).Error; err != nil {
+		return err
+	}
+	rows := metadataIndexRows(assetID, metadata)
+	if len(rows) == 0 {
+		return nil
+	}
+	return tx.Create(&rows).Error
+}
+
+func metadataIndexRows(assetID string, metadata store.JSONMap) []AssetMetadataModel {
+	rows := make([]AssetMetadataModel, 0, len(metadata))
+	for key, value := range metadata {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		valueType, valueText, ok := metadataValueParts(value)
+		if !ok {
+			continue
+		}
+		rows = append(rows, AssetMetadataModel{AssetID: assetID, Key: key, ValueType: valueType, ValueText: valueText})
+	}
+	return rows
+}
+
+func metadataValueParts(value any) (string, string, bool) {
+	switch v := value.(type) {
+	case nil:
+		return "null", "null", true
+	case bool:
+		if v {
+			return "bool", "true", true
+		}
+		return "bool", "false", true
+	case string:
+		return "string", v, true
+	case json.Number:
+		return "number", v.String(), true
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return "", "", false
+		}
+		return "number", strconv.FormatFloat(v, 'f', -1, 64), true
+	case float32:
+		f := float64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return "", "", false
+		}
+		return "number", strconv.FormatFloat(f, 'f', -1, 32), true
+	case int:
+		return "number", strconv.FormatInt(int64(v), 10), true
+	case int8:
+		return "number", strconv.FormatInt(int64(v), 10), true
+	case int16:
+		return "number", strconv.FormatInt(int64(v), 10), true
+	case int32:
+		return "number", strconv.FormatInt(int64(v), 10), true
+	case int64:
+		return "number", strconv.FormatInt(v, 10), true
+	case uint:
+		return "number", strconv.FormatUint(uint64(v), 10), true
+	case uint8:
+		return "number", strconv.FormatUint(uint64(v), 10), true
+	case uint16:
+		return "number", strconv.FormatUint(uint64(v), 10), true
+	case uint32:
+		return "number", strconv.FormatUint(uint64(v), 10), true
+	case uint64:
+		return "number", strconv.FormatUint(v, 10), true
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return "", "", false
+		}
+		return "json", string(data), true
+	}
+}
+
+func DecodeCursorForTest(cursor string) (time.Time, string, bool) {
+	return decodeCursor(cursor)
+}
+
+func decodeCursor(cursor string) (time.Time, string, bool) {
+	rawTime, id, ok := strings.Cut(cursor, ":")
+	if !ok || rawTime == "" || id == "" {
+		return time.Time{}, "", false
+	}
+	nanos, err := strconv.ParseInt(rawTime, 10, 64)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	return time.Unix(0, nanos).UTC(), id, true
 }
 
 func (s *Store) UpdateStatus(ctx context.Context, id, status string) error {

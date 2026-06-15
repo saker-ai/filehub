@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -137,6 +138,7 @@ type statsCache struct {
 var (
 	validateExternalHost = validatePublicHost
 	externalRetryDelays  = []time.Duration{5 * time.Second, 15 * time.Second}
+	errPayloadTooLarge   = errors.New("payload too large")
 )
 
 func newHandler(deps RouterDeps) handler {
@@ -296,16 +298,21 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 		return
 	}
 	defer func() { _ = file.Close() }()
-	data, err := io.ReadAll(io.LimitReader(file, h.deps.Config.MaxUploadBytes+1))
+	tmp, size, checksum, sniff, err := spoolToTemp(file, h.deps.Config.MaxUploadBytes)
 	if err != nil {
+		if errors.Is(err, errPayloadTooLarge) {
+			writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
+			return
+		}
 		writeErr(c, err)
 		return
 	}
-	if int64(len(data)) > h.deps.Config.MaxUploadBytes {
-		writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
-		return
-	}
-	releaseQuota, ok := h.reserveQuota(c, int64(len(data)))
+	defer func() {
+		name := tmp.Name()
+		_ = tmp.Close()
+		_ = os.Remove(name)
+	}()
+	releaseQuota, ok := h.reserveQuota(c, size)
 	if !ok {
 		return
 	}
@@ -315,7 +322,6 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 			releaseQuota()
 		}
 	}()
-	checksum := sha256Hex(data)
 	onDuplicate := c.DefaultQuery("on_duplicate", "reject")
 	if openAIFile {
 		onDuplicate = "allow"
@@ -337,21 +343,25 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 	id := idPrefix + shortID()
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" || contentType == "application/octet-stream" {
-		contentType = http.DetectContentType(data)
+		contentType = http.DetectContentType(sniff)
 	}
 	meta := parseJSONMap(c.PostForm("metadata"))
 	source := c.DefaultPostForm("source", "upload")
 	expiresAt := parseExpiresIn(c.PostForm("expires_in"))
 	tags := parseTags(c.PostForm("tags"))
 	storageKey := storageKey(Tenant(c), purpose, id, header.Filename)
-	if _, err := h.deps.Storage.Put(c.Request.Context(), storageKey, bytes.NewReader(data)); err != nil {
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		writeErr(c, err)
 		return
 	}
-	h.deps.Metrics.AddUploadBytes(int64(len(data)))
+	if _, err := h.deps.Storage.Put(c.Request.Context(), storageKey, tmp); err != nil {
+		writeErr(c, err)
+		return
+	}
+	h.deps.Metrics.AddUploadBytes(size)
 	asset := &store.Asset{
 		ID: id, TenantID: Tenant(c), Purpose: purpose, Filename: header.Filename, ContentType: contentType,
-		Bytes: int64(len(data)), StorageKey: storageKey, Checksum: checksum, Status: "uploaded", Source: source,
+		Bytes: size, StorageKey: storageKey, Checksum: checksum, Status: "uploaded", Source: source,
 		Metadata: meta, Tags: tagModels(tags), ExpiresAt: expiresAt,
 	}
 	if onDuplicate == "reject" {
@@ -543,7 +553,11 @@ func (h handler) list(c *gin.Context, files bool) {
 	for _, a := range items {
 		data = append(data, assetResponse(a, files))
 	}
-	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data, "has_more": hasMore})
+	nextCursor := ""
+	if hasMore && len(items) > 0 {
+		nextCursor = store.CursorFromAsset(items[len(items)-1])
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data, "has_more": hasMore, "next_cursor": nextCursor})
 }
 
 func (h handler) getFile(c *gin.Context)  { h.get(c, true) }
@@ -822,17 +836,30 @@ func (h handler) putPart(c *gin.Context) {
 		return
 	}
 	if h.deps.Storage.NativeMultipartSupported() && sess.ProviderUploadID != "" {
-		data, err := io.ReadAll(io.LimitReader(c.Request.Body, h.deps.Config.MaxUploadBytes+1))
-		if err != nil {
-			writeErr(c, err)
-			return
-		}
-		if int64(len(data)) > h.deps.Config.MaxUploadBytes {
+		if c.Request.ContentLength > h.deps.Config.MaxUploadBytes && h.deps.Config.MaxUploadBytes > 0 {
 			writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
 			return
 		}
-		etag, bytesWritten, err := h.deps.Storage.UploadPart(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID, partNum, bytes.NewReader(data))
+		tmp, bytesWritten, _, _, err := spoolToTemp(c.Request.Body, h.deps.Config.MaxUploadBytes)
 		if err != nil {
+			if errors.Is(err, errPayloadTooLarge) {
+				writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
+				return
+			}
+			writeErr(c, err)
+			return
+		}
+		defer func() {
+			name := tmp.Name()
+			_ = tmp.Close()
+			_ = os.Remove(name)
+		}()
+		etag, bytesWritten, err := h.deps.Storage.UploadPart(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID, partNum, tmp)
+		if err != nil {
+			if errors.Is(err, errPayloadTooLarge) {
+				writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
+				return
+			}
 			writeErr(c, err)
 			return
 		}
@@ -947,24 +974,45 @@ func (h handler) completeUpload(c *gin.Context) {
 		c.JSON(http.StatusOK, assetResponse(asset, false))
 		return
 	}
-	var full bytes.Buffer
+	tmp, err := os.CreateTemp("", "assethub-complete-*")
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	defer func() {
+		name := tmp.Name()
+		_ = tmp.Close()
+		_ = os.Remove(name)
+	}()
+	hash := sha256.New()
+	var totalBytes int64
 	for _, p := range parts {
-		data, err := h.deps.Storage.ReadAll(c.Request.Context(), blob.ChunkKey(sess.ID, p.PartNum))
+		rc, err := h.deps.Storage.Get(c.Request.Context(), blob.ChunkKey(sess.ID, p.PartNum))
 		if err != nil {
 			writeErr(c, err)
 			return
 		}
-		full.Write(data)
+		n, copyErr := io.Copy(io.MultiWriter(tmp, hash), rc)
+		closeErr := rc.Close()
+		if copyErr != nil {
+			writeErr(c, copyErr)
+			return
+		}
+		if closeErr != nil {
+			writeErr(c, closeErr)
+			return
+		}
+		totalBytes += n
 	}
-	if sess.TotalBytes > 0 && int64(full.Len()) != sess.TotalBytes {
+	if sess.TotalBytes > 0 && totalBytes != sess.TotalBytes {
 		writeError(c, http.StatusBadRequest, "invalid_request", "uploaded bytes do not match total_bytes")
 		return
 	}
-	if int64(full.Len()) > h.deps.Config.MaxUploadBytes {
+	if totalBytes > h.deps.Config.MaxUploadBytes {
 		writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
 		return
 	}
-	releaseQuota, ok := h.reserveQuota(c, int64(full.Len()))
+	releaseQuota, ok := h.reserveQuota(c, totalBytes)
 	if !ok {
 		return
 	}
@@ -976,13 +1024,18 @@ func (h handler) completeUpload(c *gin.Context) {
 	}()
 	id := "asset-" + shortID()
 	key := storageKey(Tenant(c), sess.Purpose, id, sess.Filename)
-	if _, err := h.deps.Storage.Put(c.Request.Context(), key, bytes.NewReader(full.Bytes())); err != nil {
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		writeErr(c, err)
 		return
 	}
+	if _, err := h.deps.Storage.Put(c.Request.Context(), key, tmp); err != nil {
+		writeErr(c, err)
+		return
+	}
+	checksum := "sha256:" + hex.EncodeToString(hash.Sum(nil))
 	asset := &store.Asset{
 		ID: id, TenantID: Tenant(c), Purpose: sess.Purpose, Filename: sess.Filename, ContentType: sess.ContentType,
-		Bytes: int64(full.Len()), StorageKey: key, Checksum: sha256Hex(full.Bytes()), Status: "uploaded", Source: sess.Source,
+		Bytes: totalBytes, StorageKey: key, Checksum: checksum, Status: "uploaded", Source: sess.Source,
 		Metadata: sess.Metadata, Tags: tagModels(sess.TagNames),
 	}
 	if err := h.deps.Assets.Create(c.Request.Context(), asset); err != nil {
@@ -1019,7 +1072,7 @@ func parseFilter(c *gin.Context) store.AssetFilter {
 		Filename: c.Query("filename"), Source: c.Query("source"), ContentType: c.Query("content_type"),
 		MetaModel: c.Query("meta_model"), MetaQuery: c.Query("meta_query"), Metadata: parseMetadataFilters(c),
 		Limit:  queryInt(c, "limit", 20),
-		Offset: queryInt(c, "offset", 0), Order: c.Query("order"), After: c.Query("after"), Before: c.Query("before"),
+		Offset: queryInt(c, "offset", 0), Order: c.Query("order"), Cursor: c.Query("cursor"), After: c.Query("after"), Before: c.Query("before"),
 	}
 }
 
@@ -1090,6 +1143,84 @@ func storageKey(tenantID, purpose, id, filename string) string {
 
 func shortID() string {
 	return strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+}
+
+func spoolToTemp(r io.Reader, maxBytes int64) (*os.File, int64, string, []byte, error) {
+	tmp, err := os.CreateTemp("", "assethub-upload-*")
+	if err != nil {
+		return nil, 0, "", nil, err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			name := tmp.Name()
+			_ = tmp.Close()
+			_ = os.Remove(name)
+		}
+	}()
+	hash := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, hash), limitReader(r, maxBytes))
+	if err != nil {
+		return nil, 0, "", nil, err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, "", nil, err
+	}
+	sniff := make([]byte, 512)
+	sn, err := io.ReadFull(tmp, sniff)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, 0, "", nil, err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, "", nil, err
+	}
+	ok = true
+	return tmp, n, "sha256:" + hex.EncodeToString(hash.Sum(nil)), sniff[:sn], nil
+}
+
+func limitReader(r io.Reader, maxBytes int64) io.Reader {
+	if maxBytes <= 0 {
+		return r
+	}
+	return &limitedReader{r: r, remaining: maxBytes}
+}
+
+type limitedReader struct {
+	r         io.Reader
+	remaining int64
+	exceeded  bool
+}
+
+func (r *limitedReader) Read(p []byte) (int, error) {
+	if r.exceeded {
+		return 0, errPayloadTooLarge
+	}
+	if r.remaining <= 0 {
+		var one [1]byte
+		n, err := r.r.Read(one[:])
+		if n > 0 {
+			r.exceeded = true
+			return 0, errPayloadTooLarge
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	if r.remaining == 0 && err == nil {
+		var one [1]byte
+		extra, extraErr := r.r.Read(one[:])
+		if extra > 0 {
+			r.exceeded = true
+			return n, errPayloadTooLarge
+		}
+		if extraErr != nil && !errors.Is(extraErr, io.EOF) {
+			return n, extraErr
+		}
+	}
+	return n, err
 }
 
 func sha256Hex(data []byte) string {

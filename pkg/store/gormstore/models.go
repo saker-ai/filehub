@@ -41,6 +41,15 @@ type AssetTagModel struct {
 
 func (AssetTagModel) TableName() string { return "asset_tags" }
 
+type AssetMetadataModel struct {
+	AssetID   string `gorm:"type:text;primaryKey;index:idx_asset_metadata_asset"`
+	Key       string `gorm:"type:text;primaryKey;index:idx_asset_metadata_key_value,priority:1"`
+	ValueType string `gorm:"type:text;primaryKey;index:idx_asset_metadata_key_value,priority:2"`
+	ValueText string `gorm:"type:text;primaryKey;index:idx_asset_metadata_key_value,priority:3"`
+}
+
+func (AssetMetadataModel) TableName() string { return "asset_metadata" }
+
 type UploadSessionModel struct {
 	ID               string          `gorm:"type:text;primaryKey"`
 	TenantID         string          `gorm:"type:text;not null;index:idx_upload_tenant"`

@@ -10,6 +10,7 @@ ASSETHUB_PRESIGN_SECRET ?= assethub-presign-secret
 ASSETHUB_DSN ?= sqlite://.synapse/stack/assethub.db
 ASSETHUB_STORAGE_BACKEND ?= osfs
 ASSETHUB_STORAGE_DIR ?= .synapse/stack/assethub-data
+ASSETHUB_PID_FILE ?= .synapse/stack/assethub.pid
 
 # Build frontend (React + Vite)
 frontend:
@@ -41,6 +42,19 @@ free-run-port:
 		echo "Cannot parse listen port from ASSETHUB_ADDR=$$addr"; \
 		exit 1; \
 	fi; \
+	if [ -f "$(ASSETHUB_PID_FILE)" ]; then \
+		old_pid="$$(cat "$(ASSETHUB_PID_FILE)" 2>/dev/null || true)"; \
+		if [ -n "$$old_pid" ] && kill -0 "$$old_pid" 2>/dev/null; then \
+			cmd="$$(ps -p "$$old_pid" -o comm= 2>/dev/null || true)"; \
+			if printf '%s' "$$cmd" | grep -Eq '(^|/)assethub$$'; then \
+				echo "Stopping previous AssetHub process $$old_pid."; \
+				kill "$$old_pid" 2>/dev/null || true; \
+				sleep 1; \
+				if kill -0 "$$old_pid" 2>/dev/null; then kill -9 "$$old_pid" 2>/dev/null || true; fi; \
+			fi; \
+		fi; \
+		rm -f "$(ASSETHUB_PID_FILE)"; \
+	fi; \
 	pids=""; \
 	if command -v lsof >/dev/null 2>&1; then \
 		pids="$$(lsof -tiTCP:"$$port" -sTCP:LISTEN 2>/dev/null || true)"; \
@@ -50,12 +64,16 @@ free-run-port:
 		echo "Skipping port check for $$port: lsof or fuser is required."; \
 	fi; \
 	if [ -n "$$pids" ]; then \
-		echo "Port $$port is in use; stopping process(es): $$pids"; \
-		kill $$pids 2>/dev/null || true; \
-		sleep 1; \
 		for pid in $$pids; do \
-			if kill -0 "$$pid" 2>/dev/null; then \
-				kill -9 "$$pid" 2>/dev/null || true; \
+			cmd="$$(ps -p "$$pid" -o comm= 2>/dev/null || true)"; \
+			if printf '%s' "$$cmd" | grep -Eq '(^|/)assethub$$'; then \
+				echo "Stopping AssetHub process $$pid on port $$port."; \
+				kill "$$pid" 2>/dev/null || true; \
+				sleep 1; \
+				if kill -0 "$$pid" 2>/dev/null; then kill -9 "$$pid" 2>/dev/null || true; fi; \
+			else \
+				echo "Port $$port is used by non-AssetHub process $$pid ($$cmd). Stop it manually or change ASSETHUB_ADDR."; \
+				exit 1; \
 			fi; \
 		done; \
 	else \
@@ -83,6 +101,7 @@ setup: deps build
 
 # Build frontend + Go binary, then start server
 run: build runtime-dirs free-run-port
+	@mkdir -p "$$(dirname "$(ASSETHUB_PID_FILE)")"; \
 	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
 	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
 	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
@@ -90,7 +109,11 @@ run: build runtime-dirs free-run-port
 	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
 	ASSETHUB_STORAGE_BACKEND="$(ASSETHUB_STORAGE_BACKEND)" \
 	ASSETHUB_STORAGE_DIR="$(ASSETHUB_STORAGE_DIR)" \
-	./assethub
+	./assethub & \
+	pid="$$!"; \
+	echo "$$pid" > "$(ASSETHUB_PID_FILE)"; \
+	trap 'rm -f "$(ASSETHUB_PID_FILE)"' EXIT INT TERM; \
+	wait "$$pid"
 
 # Start server in development mode
 dev: build runtime-dirs

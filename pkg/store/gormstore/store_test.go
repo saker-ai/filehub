@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/saker-ai/assethub/pkg/store"
 )
@@ -79,6 +80,53 @@ func TestStoreListFiltersByMetadata(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ID != "asset-flux" {
 		t.Fatalf("exact metadata filters = %#v, want asset-flux", items)
+	}
+
+	flux.Metadata = store.JSONMap{"model": "sdxl", "reviewed": true}
+	if err := db.Update(ctx, flux); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err = db.List(ctx, "default", store.AssetFilter{
+		Metadata: []store.MetadataFilter{{Key: "workflow_id"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("stale metadata index result = %#v, want none", items)
+	}
+}
+
+func TestStoreListCursorPagination(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "assethub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	base := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	for i, id := range []string{"asset-a", "asset-b", "asset-c"} {
+		asset := testAsset(id, id+".txt", "sha256:"+id)
+		asset.CreatedAt = base.Add(time.Duration(i) * time.Minute)
+		if err := db.Create(ctx, asset); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, hasMore, err := db.List(ctx, "default", store.AssetFilter{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMore || len(first) != 1 || first[0].ID != "asset-c" {
+		t.Fatalf("first page = %#v hasMore=%v, want asset-c and more", first, hasMore)
+	}
+	second, _, err := db.List(ctx, "default", store.AssetFilter{Limit: 1, Cursor: store.CursorFromAsset(first[0])})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0].ID != "asset-b" {
+		t.Fatalf("second page = %#v, want asset-b", second)
 	}
 }
 

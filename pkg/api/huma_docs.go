@@ -69,9 +69,10 @@ type docAssetOutput struct {
 
 type docListOutput struct {
 	Body struct {
-		Object  string           `json:"object" example:"list"`
-		Data    []map[string]any `json:"data"`
-		HasMore bool             `json:"has_more"`
+		Object     string           `json:"object" example:"list"`
+		Data       []map[string]any `json:"data"`
+		HasMore    bool             `json:"has_more"`
+		NextCursor string           `json:"next_cursor"`
 	}
 }
 

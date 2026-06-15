@@ -1,31 +1,35 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { Asset, bulkDelete, listAssets, updateAsset } from '../api/client'
 import { AssetCard } from '../components/AssetCard'
-import { AssetDetail } from './AssetDetail'
+
+const AssetDetail = lazy(() => import('./AssetDetail').then((module) => ({ default: module.AssetDetail })))
 
 export default function Assets() {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [assets, setAssets] = useState<Asset[]>([])
   const [active, setActive] = useState<Asset | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [filename, setFilename] = useState('')
-  const [purpose, setPurpose] = useState('')
-  const [tags, setTags] = useState('')
-  const [status, setStatus] = useState('')
-  const [source, setSource] = useState('')
-  const [contentType, setContentType] = useState('')
-  const [metaKey, setMetaKey] = useState('')
-  const [metaValue, setMetaValue] = useState('')
+  const [filename, setFilename] = useState(() => searchParams.get('filename') || '')
+  const [purpose, setPurpose] = useState(() => searchParams.get('purpose') || '')
+  const [tags, setTags] = useState(() => searchParams.get('tags') || '')
+  const [status, setStatus] = useState(() => searchParams.get('status') || '')
+  const [source, setSource] = useState(() => searchParams.get('source') || '')
+  const [contentType, setContentType] = useState(() => searchParams.get('content_type') || '')
+  const [metaKey, setMetaKey] = useState(() => searchParams.get('meta_key') || '')
+  const [metaValue, setMetaValue] = useState(() => searchParams.get('meta_value') || '')
   const [batchTags, setBatchTags] = useState('')
-  const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const [nextCursor, setNextCursor] = useState('')
+  const [cursorStack, setCursorStack] = useState<string[]>([])
   const [view, setView] = useState<'cards' | 'table'>('cards')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
-  const filter = useMemo(() => ({
+  const rawFilter = useMemo(() => ({
     filename,
     purpose,
     tags,
@@ -34,9 +38,22 @@ export default function Assets() {
     content_type: contentType,
     meta_key: metaKey,
     meta_value: metaKey ? metaValue : '',
+  }), [contentType, filename, metaKey, metaValue, purpose, source, status, tags])
+  const debouncedFilter = useDebouncedValue(rawFilter, 300)
+  const currentCursor = cursorStack[cursorStack.length - 1] || ''
+  const filter = useMemo(() => ({
+    ...debouncedFilter,
+    cursor: currentCursor,
     limit: 24,
-    offset,
-  }), [contentType, filename, metaKey, metaValue, offset, purpose, source, status, tags])
+  }), [currentCursor, debouncedFilter])
+
+  useEffect(() => {
+    const next = new URLSearchParams()
+    Object.entries(rawFilter).forEach(([key, value]) => {
+      if (value) next.set(key, String(value))
+    })
+    setSearchParams(next, { replace: true })
+  }, [rawFilter, setSearchParams])
 
   async function refresh() {
     setLoading(true)
@@ -45,6 +62,7 @@ export default function Assets() {
       const result = await listAssets(filter)
       setAssets(result.data)
       setHasMore(result.has_more)
+      setNextCursor(result.next_cursor || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -55,6 +73,11 @@ export default function Assets() {
   useEffect(() => {
     void refresh()
   }, [filter])
+
+  function resetPaging() {
+    setCursorStack([])
+    setNextCursor('')
+  }
 
   async function deleteSelected() {
     if (!window.confirm(t('confirmDeleteSelected'))) return
@@ -80,7 +103,7 @@ export default function Assets() {
     setContentType('')
     setMetaKey('')
     setMetaValue('')
-    setOffset(0)
+    resetPaging()
   }
 
   return (
@@ -102,10 +125,10 @@ export default function Assets() {
       </header>
       <section className="filters compact-filters">
         <div className="filter-main">
-          <label className="field search-field"><span>{t('filename')}</span><input value={filename} onChange={(event) => { setOffset(0); setFilename(event.target.value) }} /></label>
-          <label className="field"><span>{t('tags')}</span><input value={tags} onChange={(event) => { setOffset(0); setTags(event.target.value) }} /></label>
-          <label className="field"><span>{t('metadataKey')}</span><input value={metaKey} onChange={(event) => { setOffset(0); setMetaKey(event.target.value) }} /></label>
-          <label className="field"><span>{t('metadataValue')}</span><input value={metaValue} disabled={!metaKey} onChange={(event) => { setOffset(0); setMetaValue(event.target.value) }} /></label>
+          <label className="field search-field"><span>{t('filename')}</span><input value={filename} onChange={(event) => { resetPaging(); setFilename(event.target.value) }} /></label>
+          <label className="field"><span>{t('tags')}</span><input value={tags} onChange={(event) => { resetPaging(); setTags(event.target.value) }} /></label>
+          <label className="field"><span>{t('metadataKey')}</span><input value={metaKey} onChange={(event) => { resetPaging(); setMetaKey(event.target.value) }} /></label>
+          <label className="field"><span>{t('metadataValue')}</span><input value={metaValue} disabled={!metaKey} onChange={(event) => { resetPaging(); setMetaValue(event.target.value) }} /></label>
           <div className="filter-actions">
             <button type="button" onClick={() => setAdvancedOpen((value) => !value)} aria-expanded={advancedOpen}>{advancedOpen ? t('hideFilters') : t('moreFilters')}</button>
             <button type="button" onClick={clearFilters}>{t('clear')}</button>
@@ -113,19 +136,19 @@ export default function Assets() {
         </div>
         {advancedOpen ? (
           <div className="filter-advanced">
-            <label className="field"><span>{t('purpose')}</span><select value={purpose} onChange={(event) => { setOffset(0); setPurpose(event.target.value) }}>
+            <label className="field"><span>{t('purpose')}</span><select value={purpose} onChange={(event) => { resetPaging(); setPurpose(event.target.value) }}>
               <option value="">{t('anyPurpose')}</option>
               {['assistants', 'batch', 'fine-tune', 'media', 'vector-store', 'general'].map((value) => <option key={value}>{value}</option>)}
             </select></label>
-            <label className="field"><span>{t('status')}</span><select value={status} onChange={(event) => { setOffset(0); setStatus(event.target.value) }}>
+            <label className="field"><span>{t('status')}</span><select value={status} onChange={(event) => { resetPaging(); setStatus(event.target.value) }}>
               <option value="">{t('anyStatus')}</option>
               {['uploaded', 'processing', 'ready', 'error'].map((value) => <option key={value}>{value}</option>)}
             </select></label>
-            <label className="field"><span>{t('source')}</span><select value={source} onChange={(event) => { setOffset(0); setSource(event.target.value) }}>
+            <label className="field"><span>{t('source')}</span><select value={source} onChange={(event) => { resetPaging(); setSource(event.target.value) }}>
               <option value="">{t('anySource')}</option>
               {['upload', 'ai-generated', 'external-url'].map((value) => <option key={value}>{value}</option>)}
             </select></label>
-            <label className="field"><span>{t('type')}</span><select value={contentType} onChange={(event) => { setOffset(0); setContentType(event.target.value) }}>
+            <label className="field"><span>{t('type')}</span><select value={contentType} onChange={(event) => { resetPaging(); setContentType(event.target.value) }}>
               <option value="">{t('anyType')}</option>
               {['image/', 'video/', 'audio/', 'text/', 'application/pdf', 'model/'].map((value) => <option key={value}>{value}</option>)}
             </select></label>
@@ -174,22 +197,33 @@ export default function Assets() {
         </table>
       )}
       <div className="row actions">
-        <button type="button" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - 24))}>{t('previous')}</button>
-        <button type="button" disabled={!hasMore || loading} onClick={() => setOffset(offset + 24)}>{t('next')}</button>
+        <button type="button" disabled={cursorStack.length === 0 || loading} onClick={() => setCursorStack((prev) => prev.slice(0, -1))}>{t('previous')}</button>
+        <button type="button" disabled={!hasMore || !nextCursor || loading} onClick={() => setCursorStack((prev) => [...prev, nextCursor])}>{t('next')}</button>
       </div>
       {active ? (
-        <AssetDetail
-          assetID={active.id}
-          onClose={() => setActive(null)}
-          onNavigate={(direction) => {
-            const index = assets.findIndex((asset) => asset.id === active.id)
-            const next = assets[index + direction]
-            if (next) setActive(next)
-          }}
-        />
+        <Suspense fallback={<p className="muted">{t('loading')}</p>}>
+          <AssetDetail
+            assetID={active.id}
+            onClose={() => setActive(null)}
+            onNavigate={(direction) => {
+              const index = assets.findIndex((asset) => asset.id === active.id)
+              const next = assets[index + direction]
+              if (next) setActive(next)
+            }}
+          />
+        </Suspense>
       ) : null}
     </div>
   )
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs)
+    return () => window.clearTimeout(timer)
+  }, [delayMs, value])
+  return debounced
 }
 
 function selectAsset(prev: Set<string>, id: string, checked: boolean) {

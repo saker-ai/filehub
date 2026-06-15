@@ -1,10 +1,12 @@
+import { lazy, Suspense } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Layout } from './components/Layout'
 import Home from './pages/Home'
-import Assets from './pages/Assets'
-import Upload from './pages/Upload'
-import Login from './pages/Login'
+
+const Assets = lazy(() => import('./pages/Assets'))
+const Upload = lazy(() => import('./pages/Upload'))
+const Login = lazy(() => import('./pages/Login'))
 
 export default function App() {
   const { t } = useTranslation()
@@ -19,12 +21,14 @@ export default function App() {
         </>
       }
     >
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/assets" element={<Assets />} />
-        <Route path="/upload" element={<Upload />} />
-        <Route path="/login" element={<Login />} />
-      </Routes>
+      <Suspense fallback={<p className="muted">{t('loading')}</p>}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/assets" element={<Assets />} />
+          <Route path="/upload" element={<Upload />} />
+          <Route path="/login" element={<Login />} />
+        </Routes>
+      </Suspense>
     </Layout>
   )
 }

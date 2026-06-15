@@ -33,6 +33,7 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel(cfg.LogLevel)}))
 	slog.SetDefault(logger)
+	logSecurityWarnings(logger, cfg)
 	db, err := gormstore.Open(ctx, cfg.DSN)
 	if err != nil {
 		return nil, err
@@ -57,6 +58,29 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 		pipeline: pipeline,
 		logger:   logger,
 	}, nil
+}
+
+func logSecurityWarnings(logger *slog.Logger, cfg config.Config) {
+	if cfg.APIKeyAuthEnabled {
+		for _, key := range cfg.APIKeys {
+			if key == "dev-assethub-key" {
+				logger.Warn("default API key is enabled; set ASSETHUB_API_KEYS before production use")
+				break
+			}
+		}
+	}
+	if cfg.PresignSecret == "assethub-presign-secret" {
+		logger.Warn("default presign secret is enabled; set ASSETHUB_PRESIGN_SECRET before production use")
+	}
+	for _, origin := range cfg.CORSOrigins {
+		if origin == "*" {
+			logger.Warn("CORS allows all origins; set ASSETHUB_CORS_ORIGINS before production use")
+			break
+		}
+	}
+	if cfg.PresignTTL >= 7*24*time.Hour {
+		logger.Warn("presigned URL TTL is long", "ttl", cfg.PresignTTL.String())
+	}
 }
 
 func (s *Server) Start(ctx context.Context) error {
