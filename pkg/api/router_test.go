@@ -164,6 +164,109 @@ func TestRouterListAssetsFiltersByMetadata(t *testing.T) {
 	}
 }
 
+func TestRouterAIReviewResults(t *testing.T) {
+	ts := newTestServer(t)
+
+	asset := ts.uploadAsset(t, "/v1/assets?on_duplicate=allow", "review-me.txt", []byte("review me"), map[string]string{
+		"purpose": "media",
+		"source":  "ai-generated",
+	})
+	id := asset["id"].(string)
+
+	create := ts.request(t, http.MethodPost, "/v1/assets/"+id+"/ai-reviews", bytes.NewBufferString(`{
+		"model":"reviewer-v1",
+		"verdict":"approved",
+		"score":0.87,
+		"summary":"Useful result",
+		"rubric":"image-quality",
+		"confidence":0.91,
+		"prompt_version":"pv-1",
+		"review_job_id":"job-1",
+		"raw_response_id":"resp-1",
+		"metadata":{"reason":"matches prompt"}
+	}`), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusOK {
+		t.Fatalf("create ai review status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created["asset_id"] != id || created["verdict"] != "approved" || created["model"] != "reviewer-v1" || created["rubric"] != "image-quality" || created["review_job_id"] != "job-1" {
+		t.Fatalf("created review = %#v, want asset/model/verdict", created)
+	}
+
+	byAsset := ts.getJSON(t, "/v1/assets/"+id+"/ai-reviews")
+	assetData := byAsset["data"].([]any)
+	if len(assetData) != 1 || assetData[0].(map[string]any)["summary"] != "Useful result" {
+		t.Fatalf("asset ai reviews = %#v, want created review", assetData)
+	}
+
+	global := ts.getJSON(t, "/v1/ai-reviews?asset_id="+id+"&verdict=approved")
+	globalData := global["data"].([]any)
+	if len(globalData) != 1 || globalData[0].(map[string]any)["asset_id"] != id {
+		t.Fatalf("global ai reviews = %#v, want created review", globalData)
+	}
+}
+
+func TestRouterHumanReviewWorkflow(t *testing.T) {
+	ts := newTestServer(t)
+
+	first := ts.uploadAsset(t, "/v1/assets?on_duplicate=allow", "first-review.txt", []byte("first"), map[string]string{"purpose": "media"})
+	second := ts.uploadAsset(t, "/v1/assets?on_duplicate=allow", "second-review.txt", []byte("second"), map[string]string{"purpose": "media"})
+	firstID := first["id"].(string)
+	secondID := second["id"].(string)
+
+	create := ts.request(t, http.MethodPost, "/v1/reviews", bytes.NewBufferString(`{
+		"title":"Human pick",
+		"reviewer":"alice",
+		"reference_asset_id":"`+firstID+`",
+		"asset_ids":["`+firstID+`","`+secondID+`"],
+		"trace_id":"trace-1"
+	}`), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusOK {
+		t.Fatalf("create review status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	reviewID := created["id"].(string)
+	if created["status"] != "open" || len(created["items"].([]any)) != 2 {
+		t.Fatalf("created review = %#v, want open review with two items", created)
+	}
+
+	updateItem := ts.request(t, http.MethodPatch, "/v1/reviews/"+reviewID+"/items/"+secondID, bytes.NewBufferString(`{"decision":"best","note":"best output"}`), map[string]string{"Content-Type": "application/json"})
+	if updateItem.Code != http.StatusOK {
+		t.Fatalf("update review item status=%d body=%s", updateItem.Code, updateItem.Body.String())
+	}
+	var itemUpdated map[string]any
+	if err := json.Unmarshal(updateItem.Body.Bytes(), &itemUpdated); err != nil {
+		t.Fatal(err)
+	}
+	items := itemUpdated["items"].([]any)
+	foundBest := false
+	for _, raw := range items {
+		item := raw.(map[string]any)
+		if item["asset_id"] == secondID && item["decision"] == "best" && item["note"] == "best output" {
+			foundBest = true
+		}
+	}
+	if !foundBest {
+		t.Fatalf("updated review items = %#v, want best item", items)
+	}
+
+	complete := ts.request(t, http.MethodPatch, "/v1/reviews/"+reviewID, bytes.NewBufferString(`{"status":"completed","selected_asset_id":"`+secondID+`"}`), map[string]string{"Content-Type": "application/json"})
+	if complete.Code != http.StatusOK {
+		t.Fatalf("complete review status=%d body=%s", complete.Code, complete.Body.String())
+	}
+	completed := ts.getJSON(t, "/v1/reviews?status=completed")
+	data := completed["data"].([]any)
+	if len(data) != 1 || data[0].(map[string]any)["selected_asset_id"] != secondID {
+		t.Fatalf("completed review list = %#v, want selected second asset", data)
+	}
+}
+
 func TestRouterOpenAIFilesAndChunkUpload(t *testing.T) {
 	ts := newTestServer(t)
 
@@ -714,7 +817,7 @@ func newTestServerWithConfig(t *testing.T, cfg config.Config) *testServer {
 		t.Fatal(err)
 	}
 	pipeline := processing.New(4, blobs, db, nil)
-	router := NewRouter(RouterDeps{Config: cfg, Assets: db, Uploads: db, Storage: blobs, Pipeline: pipeline})
+	router := NewRouter(RouterDeps{Config: cfg, Assets: db, Uploads: db, AIReviews: db, Reviews: db, Storage: blobs, Pipeline: pipeline})
 	return &testServer{router: router, db: db}
 }
 

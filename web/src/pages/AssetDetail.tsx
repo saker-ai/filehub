@@ -4,6 +4,7 @@ import { assetHubPath, authHeaders, deleteAsset, fetchAssetBlob, getAsset, presi
 import { CodeBlock } from '../components/CodeBlock'
 import { formatBytes } from '../components/AssetCard'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo, useAuthObjectURL } from '../components/AuthMedia'
+import { AIReviewResults } from '../components/AIReviews'
 
 export function AssetDetail({ assetID, positionLabel, canNavigatePrev = true, canNavigateNext = true, onClose, onNavigate }: { assetID: string; positionLabel?: string; canNavigatePrev?: boolean; canNavigateNext?: boolean; onClose: () => void; onNavigate?: (direction: -1 | 1) => void }) {
   const { t } = useTranslation()
@@ -120,6 +121,8 @@ export function AssetDetail({ assetID, positionLabel, canNavigatePrev = true, ca
         </section>
 
         {asset.source === 'ai-generated' ? <AIInfo metadata={asset.metadata || {}} title={t('aiMetadata')} /> : null}
+
+        <AIReviewResults assetID={asset.id} editable />
 
         <section className="detail-editor">
           <label>{t('tags')}<input value={tags} onChange={(event) => setTags(event.target.value)} /></label>

@@ -115,6 +115,77 @@ type docBulkDeleteInput struct {
 	}
 }
 
+type docCreateAIReviewInput struct {
+	ID   string `path:"id" doc:"Asset ID" required:"true"`
+	Body struct {
+		Model         string         `json:"model"`
+		Verdict       string         `json:"verdict" enum:"approved,rejected,needs_revision,uncertain"`
+		Score         *float64       `json:"score"`
+		Summary       string         `json:"summary"`
+		Rubric        string         `json:"rubric"`
+		Confidence    *float64       `json:"confidence"`
+		PromptVersion string         `json:"prompt_version"`
+		ReviewJobID   string         `json:"review_job_id"`
+		RawResponseID string         `json:"raw_response_id"`
+		Metadata      map[string]any `json:"metadata"`
+	}
+}
+
+type docListAIReviewsInput struct {
+	AssetID string `query:"asset_id" doc:"Filter by asset ID"`
+	Verdict string `query:"verdict" doc:"Filter by AI verdict"`
+	Model   string `query:"model" doc:"Filter by review model"`
+	Limit   int    `query:"limit" doc:"Maximum results" default:"20"`
+	Offset  int    `query:"offset" doc:"Offset pagination" default:"0"`
+}
+
+type docCreateReviewInput struct {
+	Body struct {
+		Title           string         `json:"title"`
+		Status          string         `json:"status" enum:"open,completed,archived"`
+		ReferenceID     string         `json:"reference_asset_id"`
+		AssetIDs        []string       `json:"asset_ids" required:"true"`
+		SelectedAssetID string         `json:"selected_asset_id"`
+		Reviewer        string         `json:"reviewer"`
+		Source          string         `json:"source"`
+		TraceID         string         `json:"trace_id"`
+		Metadata        map[string]any `json:"metadata"`
+	}
+}
+
+type docListReviewsInput struct {
+	Status   string `query:"status" doc:"Filter by review status"`
+	Reviewer string `query:"reviewer" doc:"Filter by reviewer"`
+	Source   string `query:"source" doc:"Filter by review source"`
+	Limit    int    `query:"limit" doc:"Maximum results" default:"20"`
+	Offset   int    `query:"offset" doc:"Offset pagination" default:"0"`
+}
+
+type docPatchReviewInput struct {
+	ID   string `path:"id" doc:"Review ID" required:"true"`
+	Body struct {
+		Title           string         `json:"title"`
+		Status          string         `json:"status" enum:"open,completed,archived"`
+		ReferenceID     string         `json:"reference_asset_id"`
+		SelectedAssetID string         `json:"selected_asset_id"`
+		Reviewer        string         `json:"reviewer"`
+		Source          string         `json:"source"`
+		TraceID         string         `json:"trace_id"`
+		Metadata        map[string]any `json:"metadata"`
+	}
+}
+
+type docPatchReviewItemInput struct {
+	ID      string `path:"id" doc:"Review ID" required:"true"`
+	AssetID string `path:"asset_id" doc:"Asset ID" required:"true"`
+	Body    struct {
+		Decision string         `json:"decision" enum:"pending,approved,rejected,needs_revision,best"`
+		Note     string         `json:"note"`
+		Score    *float64       `json:"score"`
+		Metadata map[string]any `json:"metadata"`
+	}
+}
+
 type docCreateExternalInput struct {
 	Body struct {
 		URL         string         `json:"url" doc:"External http or https URL"`
@@ -176,9 +247,17 @@ func registerOpenAPIDocs(api huma.API) {
 	registerDoc[docListAssetsInput, docListOutput](api, http.MethodGet, "/v1/assets", "list-assets", "Assets", "Search and list assets", security)
 	registerDoc[struct{}, docStatsOutput](api, http.MethodGet, "/v1/assets/stats", "asset-stats", "Assets", "Get asset statistics", security)
 	registerDoc[docBulkDeleteInput, docOKOutput](api, http.MethodPost, "/v1/assets/bulk-delete", "bulk-delete-assets", "Assets", "Bulk delete assets", security)
+	registerDoc[docCreateReviewInput, docOKOutput](api, http.MethodPost, "/v1/reviews", "create-review", "Reviews", "Create human asset review task", security)
+	registerDoc[docListReviewsInput, docListOutput](api, http.MethodGet, "/v1/reviews", "list-reviews", "Reviews", "List human asset review tasks", security)
+	registerDoc[docIDInput, docOKOutput](api, http.MethodGet, "/v1/reviews/{id}", "get-review", "Reviews", "Get human asset review task", security)
+	registerDoc[docPatchReviewInput, docOKOutput](api, http.MethodPatch, "/v1/reviews/{id}", "patch-review", "Reviews", "Update human asset review task", security)
+	registerDoc[docPatchReviewItemInput, docOKOutput](api, http.MethodPatch, "/v1/reviews/{id}/items/{asset_id}", "patch-review-item", "Reviews", "Update human review decision for one asset", security)
+	registerDoc[docListAIReviewsInput, docListOutput](api, http.MethodGet, "/v1/ai-reviews", "list-ai-reviews", "AI Reviews", "List AI review results", security)
 	registerDoc[docIDInput, docAssetOutput](api, http.MethodGet, "/v1/assets/{id}", "get-asset", "Assets", "Get asset metadata", security)
 	registerDoc[docPatchAssetInput, docAssetOutput](api, http.MethodPatch, "/v1/assets/{id}", "patch-asset", "Assets", "Update asset tags and metadata", security)
 	registerDoc[docIDInput, docOKOutput](api, http.MethodDelete, "/v1/assets/{id}", "delete-asset", "Assets", "Delete asset", security)
+	registerDoc[docIDInput, docListOutput](api, http.MethodGet, "/v1/assets/{id}/ai-reviews", "list-asset-ai-reviews", "AI Reviews", "List AI review results for one asset", security)
+	registerDoc[docCreateAIReviewInput, docOKOutput](api, http.MethodPost, "/v1/assets/{id}/ai-reviews", "create-asset-ai-review", "AI Reviews", "Record AI review result for one asset", security)
 	registerDoc[docPresignInput, docPresignOutput](api, http.MethodPost, "/v1/assets/{id}/presign", "presign-asset", "Assets", "Create presigned download URL", security)
 	registerDoc[docDownloadInput, struct{}](api, http.MethodGet, "/v1/assets/{id}/content", "download-asset", "Assets", "Download asset content", security)
 	registerDoc[docThumbnailInput, struct{}](api, http.MethodGet, "/v1/assets/{id}/thumbnail", "asset-thumbnail", "Assets", "Get or generate asset thumbnail", security)

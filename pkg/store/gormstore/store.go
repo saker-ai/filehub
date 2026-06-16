@@ -42,7 +42,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("database ping: %w", err)
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&AssetModel{}, &TagModel{}, &AssetTagModel{}, &AssetMetadataModel{}, &UploadSessionModel{}, &UploadPartModel{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&AssetModel{}, &TagModel{}, &AssetTagModel{}, &AssetMetadataModel{}, &AIReviewModel{}, &AssetReviewModel{}, &AssetReviewItemModel{}, &UploadSessionModel{}, &UploadPartModel{}); err != nil {
 		return nil, fmt.Errorf("database migrate: %w", err)
 	}
 	out := &Store{db: db}
@@ -297,6 +297,15 @@ func (s *Store) Update(ctx context.Context, a *store.Asset) error {
 
 func (s *Store) Delete(ctx context.Context, tenantID, id string) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("tenant_id = ? AND asset_id = ?", tenantID, id).Delete(&AIReviewModel{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("asset_id = ? AND review_id IN (SELECT id FROM asset_reviews WHERE tenant_id = ?)", id, tenantID).Delete(&AssetReviewItemModel{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&AssetReviewModel{}).Where("tenant_id = ? AND selected_asset_id = ?", tenantID, id).Update("selected_asset_id", "").Error; err != nil {
+			return err
+		}
 		if err := tx.Where("asset_id = ?", id).Delete(&AssetTagModel{}).Error; err != nil {
 			return err
 		}
@@ -316,6 +325,229 @@ func (s *Store) Delete(ctx context.Context, tenantID, id string) error {
 		return fmt.Errorf("delete asset: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) CreateAIReview(ctx context.Context, r *store.AIReview) error {
+	now := time.Now().UTC()
+	if r.CreatedAt.IsZero() {
+		r.CreatedAt = now
+	}
+	r.UpdatedAt = r.CreatedAt
+	if r.Metadata == nil {
+		r.Metadata = store.JSONMap{}
+	}
+	m := fromAIReview(r)
+	if err := s.db.WithContext(ctx).Create(&m).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return store.ErrConflict
+		}
+		return fmt.Errorf("create ai review: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetAIReview(ctx context.Context, tenantID, id string) (*store.AIReview, error) {
+	var m AIReviewModel
+	err := s.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, store.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get ai review: %w", err)
+	}
+	return toAIReview(m), nil
+}
+
+func (s *Store) ListAIReviews(ctx context.Context, tenantID string, filter store.AIReviewFilter) ([]*store.AIReview, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	q := s.db.WithContext(ctx).Model(&AIReviewModel{}).Where("tenant_id = ?", tenantID)
+	if filter.AssetID != "" {
+		q = q.Where("asset_id = ?", filter.AssetID)
+	}
+	if filter.Verdict != "" {
+		q = q.Where("verdict = ?", filter.Verdict)
+	}
+	if filter.Model != "" {
+		q = q.Where("model = ?", filter.Model)
+	}
+	var models []AIReviewModel
+	if err := q.Order("created_at DESC, id DESC").Limit(limit).Offset(filter.Offset).Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("list ai reviews: %w", err)
+	}
+	out := make([]*store.AIReview, 0, len(models))
+	for _, m := range models {
+		out = append(out, toAIReview(m))
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteAIReviewsForAsset(ctx context.Context, tenantID, assetID string) error {
+	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND asset_id = ?", tenantID, assetID).Delete(&AIReviewModel{}).Error; err != nil {
+		return fmt.Errorf("delete ai reviews for asset: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) CreateAssetReview(ctx context.Context, r *store.AssetReview) error {
+	now := time.Now().UTC()
+	if r.CreatedAt.IsZero() {
+		r.CreatedAt = now
+	}
+	r.UpdatedAt = r.CreatedAt
+	if r.Status == "" {
+		r.Status = "open"
+	}
+	if r.Source == "" {
+		r.Source = "human"
+	}
+	if r.Metadata == nil {
+		r.Metadata = store.JSONMap{}
+	}
+	for i := range r.Items {
+		if r.Items[i].CreatedAt.IsZero() {
+			r.Items[i].CreatedAt = r.CreatedAt
+		}
+		r.Items[i].UpdatedAt = r.Items[i].CreatedAt
+		r.Items[i].ReviewID = r.ID
+		if r.Items[i].Metadata == nil {
+			r.Items[i].Metadata = store.JSONMap{}
+		}
+	}
+	m := fromAssetReview(r)
+	if err := s.db.WithContext(ctx).Create(&m).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return store.ErrConflict
+		}
+		return fmt.Errorf("create asset review: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetAssetReview(ctx context.Context, tenantID, id string) (*store.AssetReview, error) {
+	var m AssetReviewModel
+	err := s.db.WithContext(ctx).Preload("Items", func(db *gorm.DB) *gorm.DB {
+		return db.Order("created_at ASC, id ASC")
+	}).Where("tenant_id = ? AND id = ?", tenantID, id).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, store.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get asset review: %w", err)
+	}
+	return toAssetReview(m), nil
+}
+
+func (s *Store) ListAssetReviews(ctx context.Context, tenantID string, filter store.AssetReviewFilter) ([]*store.AssetReview, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	q := s.db.WithContext(ctx).Model(&AssetReviewModel{}).Preload("Items").Where("tenant_id = ?", tenantID)
+	if filter.Status != "" {
+		q = q.Where("status = ?", filter.Status)
+	}
+	if filter.Reviewer != "" {
+		q = q.Where("reviewer = ?", filter.Reviewer)
+	}
+	if filter.Source != "" {
+		q = q.Where("source = ?", filter.Source)
+	}
+	var models []AssetReviewModel
+	if err := q.Order("created_at DESC, id DESC").Limit(limit).Offset(filter.Offset).Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("list asset reviews: %w", err)
+	}
+	out := make([]*store.AssetReview, 0, len(models))
+	for _, m := range models {
+		out = append(out, toAssetReview(m))
+	}
+	return out, nil
+}
+
+func (s *Store) UpdateAssetReview(ctx context.Context, r *store.AssetReview) error {
+	r.UpdatedAt = time.Now().UTC()
+	updates := map[string]any{
+		"title":             r.Title,
+		"status":            r.Status,
+		"reference_id":      r.ReferenceID,
+		"selected_asset_id": r.SelectedAssetID,
+		"reviewer":          r.Reviewer,
+		"source":            r.Source,
+		"trace_id":          r.TraceID,
+		"metadata":          r.Metadata,
+		"updated_at":        r.UpdatedAt,
+		"completed_at":      r.CompletedAt,
+	}
+	res := s.db.WithContext(ctx).Model(&AssetReviewModel{}).Where("tenant_id = ? AND id = ?", r.TenantID, r.ID).Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("update asset review: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) UpdateAssetReviewItem(ctx context.Context, tenantID, reviewID string, item *store.AssetReviewItem) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var review AssetReviewModel
+		if err := tx.Select("id").Where("tenant_id = ? AND id = ?", tenantID, reviewID).First(&review).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return store.ErrNotFound
+			}
+			return fmt.Errorf("get asset review for item update: %w", err)
+		}
+		now := time.Now().UTC()
+		var existing AssetReviewItemModel
+		err := tx.Where("review_id = ? AND asset_id = ?", reviewID, item.AssetID).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if item.ID == "" {
+				return store.ErrNotFound
+			}
+			item.ReviewID = reviewID
+			item.CreatedAt = now
+			item.UpdatedAt = now
+			if item.Metadata == nil {
+				item.Metadata = store.JSONMap{}
+			}
+			m := fromAssetReviewItem(item)
+			if err := tx.Create(&m).Error; err != nil {
+				return fmt.Errorf("create asset review item: %w", err)
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("get asset review item: %w", err)
+		}
+		if item.Metadata == nil {
+			item.Metadata = store.JSONMap{}
+		}
+		updates := map[string]any{
+			"decision":   item.Decision,
+			"note":       item.Note,
+			"score":      item.Score,
+			"metadata":   item.Metadata,
+			"updated_at": now,
+		}
+		if err := tx.Model(&AssetReviewItemModel{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("update asset review item: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) DeleteAssetReviewsForAsset(ctx context.Context, tenantID, assetID string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("asset_id = ? AND review_id IN (SELECT id FROM asset_reviews WHERE tenant_id = ?)", assetID, tenantID).Delete(&AssetReviewItemModel{}).Error; err != nil {
+			return fmt.Errorf("delete asset review items for asset: %w", err)
+		}
+		if err := tx.Model(&AssetReviewModel{}).Where("tenant_id = ? AND selected_asset_id = ?", tenantID, assetID).Update("selected_asset_id", "").Error; err != nil {
+			return fmt.Errorf("clear selected asset review references: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *Store) ensureMetadataIndex(ctx context.Context) error {

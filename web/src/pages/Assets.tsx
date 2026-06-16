@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Asset, bulkDelete, listAssets, updateAsset } from '../api/client'
 import { assetHubURL } from '../basePath'
 import { AssetCard, AssetListItem, formatBytes } from '../components/AssetCard'
@@ -60,6 +60,7 @@ export default function Assets() {
   }, [assets, sort])
   const activeIndex = active ? sortedAssets.findIndex((asset) => asset.id === active.id) : -1
   const uploadPath = assetHubURL('/upload')
+  const compareTarget = `/compare?ids=${encodeURIComponent([...selected].join(','))}`
   const activeFilters = useMemo(() => [
     filename ? { key: 'filename', label: `${t('filename')}: ${filename}`, clear: () => setFilename('') } : null,
     tags ? { key: 'tags', label: `${t('tags')}: ${tags}`, clear: () => setTags('') } : null,
@@ -189,6 +190,9 @@ export default function Assets() {
           {selected.size > 0 ? (
             <div className="selection-bar" role="region" aria-label={t('selectionActions')}>
               <span className="selection-count">{t('selectedCount', { count: selected.size })}</span>
+              <Link className={`button-link${selected.size < 2 ? ' disabled' : ''}`} to={compareTarget} aria-disabled={selected.size < 2} onClick={(event) => {
+                if (selected.size < 2) event.preventDefault()
+              }}>{t('compareSelected')}</Link>
               <label className="field compact-field"><span>{t('batchTags')}</span><input value={batchTags} disabled={bulkBusy} onChange={(event) => setBatchTags(event.target.value)} /></label>
               <button type="button" disabled={bulkBusy} onClick={applyTags}>{bulkBusy ? t('working') : t('applyTags')}</button>
               <button type="button" disabled={bulkBusy} className="danger-button" onClick={deleteSelected}>{bulkBusy ? t('working') : t('deleteSelected')}</button>

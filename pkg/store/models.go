@@ -143,6 +143,69 @@ type AssetStats struct {
 	ByStatus      map[string]int64 `json:"by_status"`
 }
 
+type AIReview struct {
+	ID            string
+	TenantID      string
+	AssetID       string
+	Model         string
+	Verdict       string
+	Score         *float64
+	Summary       string
+	Rubric        string
+	Confidence    *float64
+	PromptVersion string
+	ReviewJobID   string
+	RawResponseID string
+	Metadata      JSONMap
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type AIReviewFilter struct {
+	AssetID string
+	Verdict string
+	Model   string
+	Limit   int
+	Offset  int
+}
+
+type AssetReview struct {
+	ID              string
+	TenantID        string
+	Title           string
+	Status          string
+	ReferenceID     string
+	SelectedAssetID string
+	Reviewer        string
+	Source          string
+	TraceID         string
+	Metadata        JSONMap
+	Items           []AssetReviewItem
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CompletedAt     *time.Time
+}
+
+type AssetReviewItem struct {
+	ID        string
+	ReviewID  string
+	AssetID   string
+	Decision  string
+	Note      string
+	Score     *float64
+	Metadata  JSONMap
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AssetReviewFilter struct {
+	Status   string
+	Reviewer string
+	Source   string
+	Limit    int
+	Offset   int
+}
+
 type AssetFilter struct {
 	Purpose     string
 	Status      string
@@ -179,6 +242,22 @@ type AssetRepo interface {
 	SetTags(ctx context.Context, id string, tags []string) error
 	ListExpired(ctx context.Context, now time.Time, limit int) ([]*Asset, error)
 	Stats(ctx context.Context, tenantID string) (*AssetStats, error)
+}
+
+type AIReviewRepo interface {
+	CreateAIReview(ctx context.Context, r *AIReview) error
+	GetAIReview(ctx context.Context, tenantID, id string) (*AIReview, error)
+	ListAIReviews(ctx context.Context, tenantID string, filter AIReviewFilter) ([]*AIReview, error)
+	DeleteAIReviewsForAsset(ctx context.Context, tenantID, assetID string) error
+}
+
+type AssetReviewRepo interface {
+	CreateAssetReview(ctx context.Context, r *AssetReview) error
+	GetAssetReview(ctx context.Context, tenantID, id string) (*AssetReview, error)
+	ListAssetReviews(ctx context.Context, tenantID string, filter AssetReviewFilter) ([]*AssetReview, error)
+	UpdateAssetReview(ctx context.Context, r *AssetReview) error
+	UpdateAssetReviewItem(ctx context.Context, tenantID, reviewID string, item *AssetReviewItem) error
+	DeleteAssetReviewsForAsset(ctx context.Context, tenantID, assetID string) error
 }
 
 type UploadRepo interface {

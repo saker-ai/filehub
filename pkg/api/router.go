@@ -31,12 +31,14 @@ import (
 )
 
 type RouterDeps struct {
-	Config   config.Config
-	Assets   store.AssetRepo
-	Uploads  store.UploadRepo
-	Storage  *blob.Store
-	Pipeline *processing.Pipeline
-	Metrics  *Metrics
+	Config    config.Config
+	Assets    store.AssetRepo
+	Uploads   store.UploadRepo
+	AIReviews store.AIReviewRepo
+	Reviews   store.AssetReviewRepo
+	Storage   *blob.Store
+	Pipeline  *processing.Pipeline
+	Metrics   *Metrics
 }
 
 func NewRouter(deps RouterDeps) *gin.Engine {
@@ -104,9 +106,17 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	v1.GET("/assets", h.listAssets)
 	v1.GET("/assets/stats", h.stats)
 	v1.POST("/assets/bulk-delete", h.bulkDelete)
+	v1.POST("/reviews", h.createReview)
+	v1.GET("/reviews", h.listReviews)
+	v1.GET("/reviews/:id", h.getReview)
+	v1.PATCH("/reviews/:id", h.patchReview)
+	v1.PATCH("/reviews/:id/items/:asset_id", h.patchReviewItem)
+	v1.GET("/ai-reviews", h.listAIReviews)
 	v1.GET("/assets/:id", h.getAsset)
 	v1.PATCH("/assets/:id", h.patchAsset)
 	v1.DELETE("/assets/:id", h.deleteAsset)
+	v1.GET("/assets/:id/ai-reviews", h.listAssetAIReviews)
+	v1.POST("/assets/:id/ai-reviews", h.createAssetAIReview)
 	v1.POST("/assets/:id/presign", h.presign)
 	v1.GET("/assets/:id/content", h.getContent)
 	v1.GET("/assets/:id/thumbnail", h.thumbnail)
@@ -159,6 +169,18 @@ func newHandler(deps RouterDeps) handler {
 var validPurposes = map[string]bool{
 	"assistants": true, "batch": true, "fine-tune": true, "vision": true, "user_data": true, "evals": true,
 	"media": true, "vector-store": true, "general": true,
+}
+
+var validAIReviewVerdicts = map[string]bool{
+	"approved": true, "rejected": true, "needs_revision": true, "uncertain": true,
+}
+
+var validReviewStatuses = map[string]bool{
+	"open": true, "completed": true, "archived": true,
+}
+
+var validReviewDecisions = map[string]bool{
+	"pending": true, "approved": true, "rejected": true, "needs_revision": true, "best": true,
 }
 
 func (h handler) acquireUpload(c *gin.Context) bool {
@@ -662,6 +684,340 @@ func (h handler) patchAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, assetResponse(a, false))
 }
 
+func (h handler) createReview(c *gin.Context) {
+	if h.deps.Reviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "review repository is not configured")
+		return
+	}
+	var req struct {
+		Title           string         `json:"title"`
+		Status          string         `json:"status"`
+		ReferenceID     string         `json:"reference_asset_id"`
+		AssetIDs        []string       `json:"asset_ids"`
+		SelectedAssetID string         `json:"selected_asset_id"`
+		Reviewer        string         `json:"reviewer"`
+		Source          string         `json:"source"`
+		TraceID         string         `json:"trace_id"`
+		Metadata        map[string]any `json:"metadata"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		req.Title = "Asset review"
+	}
+	req.Status = defaultString(strings.TrimSpace(req.Status), "open")
+	if !validReviewStatuses[req.Status] {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid review status")
+		return
+	}
+	assetIDs := uniqueStrings(req.AssetIDs)
+	if len(assetIDs) == 0 {
+		writeError(c, http.StatusBadRequest, "invalid_request", "asset_ids is required")
+		return
+	}
+	for _, id := range assetIDs {
+		if _, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id); err != nil {
+			writeErr(c, err)
+			return
+		}
+	}
+	reviewID := "rev-" + shortID()
+	items := make([]store.AssetReviewItem, 0, len(assetIDs))
+	for _, id := range assetIDs {
+		items = append(items, store.AssetReviewItem{
+			ID:       "revi-" + shortID(),
+			ReviewID: reviewID,
+			AssetID:  id,
+			Decision: "pending",
+			Metadata: store.JSONMap{},
+		})
+	}
+	review := &store.AssetReview{
+		ID:              reviewID,
+		TenantID:        Tenant(c),
+		Title:           req.Title,
+		Status:          req.Status,
+		ReferenceID:     strings.TrimSpace(req.ReferenceID),
+		SelectedAssetID: strings.TrimSpace(req.SelectedAssetID),
+		Reviewer:        strings.TrimSpace(req.Reviewer),
+		Source:          defaultString(strings.TrimSpace(req.Source), "human"),
+		TraceID:         strings.TrimSpace(req.TraceID),
+		Metadata:        store.JSONMap(req.Metadata),
+		Items:           items,
+	}
+	if err := h.deps.Reviews.CreateAssetReview(c.Request.Context(), review); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, assetReviewResponse(review))
+}
+
+func (h handler) listReviews(c *gin.Context) {
+	if h.deps.Reviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "review repository is not configured")
+		return
+	}
+	items, err := h.deps.Reviews.ListAssetReviews(c.Request.Context(), Tenant(c), store.AssetReviewFilter{
+		Status:   c.Query("status"),
+		Reviewer: c.Query("reviewer"),
+		Source:   c.Query("source"),
+		Limit:    queryInt(c, "limit", 20),
+		Offset:   queryInt(c, "offset", 0),
+	})
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		data = append(data, assetReviewResponse(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data, "has_more": false})
+}
+
+func (h handler) getReview(c *gin.Context) {
+	if h.deps.Reviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "review repository is not configured")
+		return
+	}
+	review, err := h.deps.Reviews.GetAssetReview(c.Request.Context(), Tenant(c), c.Param("id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, assetReviewResponse(review))
+}
+
+func (h handler) patchReview(c *gin.Context) {
+	if h.deps.Reviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "review repository is not configured")
+		return
+	}
+	review, err := h.deps.Reviews.GetAssetReview(c.Request.Context(), Tenant(c), c.Param("id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	var req struct {
+		Title           *string        `json:"title"`
+		Status          *string        `json:"status"`
+		ReferenceID     *string        `json:"reference_asset_id"`
+		SelectedAssetID *string        `json:"selected_asset_id"`
+		Reviewer        *string        `json:"reviewer"`
+		Source          *string        `json:"source"`
+		TraceID         *string        `json:"trace_id"`
+		Metadata        map[string]any `json:"metadata"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	if req.Title != nil {
+		review.Title = strings.TrimSpace(*req.Title)
+	}
+	if req.Status != nil {
+		review.Status = strings.TrimSpace(*req.Status)
+		if !validReviewStatuses[review.Status] {
+			writeError(c, http.StatusBadRequest, "invalid_request", "invalid review status")
+			return
+		}
+		if review.Status == "completed" && review.CompletedAt == nil {
+			now := time.Now().UTC()
+			review.CompletedAt = &now
+		}
+		if review.Status != "completed" {
+			review.CompletedAt = nil
+		}
+	}
+	if req.ReferenceID != nil {
+		review.ReferenceID = strings.TrimSpace(*req.ReferenceID)
+	}
+	if req.SelectedAssetID != nil {
+		review.SelectedAssetID = strings.TrimSpace(*req.SelectedAssetID)
+	}
+	if req.Reviewer != nil {
+		review.Reviewer = strings.TrimSpace(*req.Reviewer)
+	}
+	if req.Source != nil {
+		review.Source = strings.TrimSpace(*req.Source)
+	}
+	if req.TraceID != nil {
+		review.TraceID = strings.TrimSpace(*req.TraceID)
+	}
+	if req.Metadata != nil {
+		review.Metadata = store.JSONMap(req.Metadata)
+	}
+	if err := h.deps.Reviews.UpdateAssetReview(c.Request.Context(), review); err != nil {
+		writeErr(c, err)
+		return
+	}
+	updated, err := h.deps.Reviews.GetAssetReview(c.Request.Context(), Tenant(c), review.ID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, assetReviewResponse(updated))
+}
+
+func (h handler) patchReviewItem(c *gin.Context) {
+	if h.deps.Reviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "review repository is not configured")
+		return
+	}
+	var req struct {
+		Decision string         `json:"decision"`
+		Note     string         `json:"note"`
+		Score    *float64       `json:"score"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	req.Decision = defaultString(strings.TrimSpace(req.Decision), "pending")
+	if !validReviewDecisions[req.Decision] {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid review decision")
+		return
+	}
+	if req.Score != nil && (*req.Score < 0 || *req.Score > 1) {
+		writeError(c, http.StatusBadRequest, "invalid_request", "score must be between 0 and 1")
+		return
+	}
+	item := &store.AssetReviewItem{
+		ID:       "revi-" + shortID(),
+		AssetID:  c.Param("asset_id"),
+		Decision: req.Decision,
+		Note:     strings.TrimSpace(req.Note),
+		Score:    req.Score,
+		Metadata: store.JSONMap(req.Metadata),
+	}
+	if err := h.deps.Reviews.UpdateAssetReviewItem(c.Request.Context(), Tenant(c), c.Param("id"), item); err != nil {
+		writeErr(c, err)
+		return
+	}
+	review, err := h.deps.Reviews.GetAssetReview(c.Request.Context(), Tenant(c), c.Param("id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, assetReviewResponse(review))
+}
+
+func (h handler) listAIReviews(c *gin.Context) {
+	if h.deps.AIReviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "ai review repository is not configured")
+		return
+	}
+	filter := store.AIReviewFilter{
+		AssetID: c.Query("asset_id"),
+		Verdict: c.Query("verdict"),
+		Model:   c.Query("model"),
+		Limit:   queryInt(c, "limit", 20),
+		Offset:  queryInt(c, "offset", 0),
+	}
+	items, err := h.deps.AIReviews.ListAIReviews(c.Request.Context(), Tenant(c), filter)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		data = append(data, aiReviewResponse(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data, "has_more": false})
+}
+
+func (h handler) listAssetAIReviews(c *gin.Context) {
+	if h.deps.AIReviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "ai review repository is not configured")
+		return
+	}
+	if _, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id")); err != nil {
+		writeErr(c, err)
+		return
+	}
+	items, err := h.deps.AIReviews.ListAIReviews(c.Request.Context(), Tenant(c), store.AIReviewFilter{
+		AssetID: c.Param("id"),
+		Limit:   queryInt(c, "limit", 20),
+		Offset:  queryInt(c, "offset", 0),
+	})
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		data = append(data, aiReviewResponse(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data, "has_more": false})
+}
+
+func (h handler) createAssetAIReview(c *gin.Context) {
+	if h.deps.AIReviews == nil {
+		writeError(c, http.StatusInternalServerError, "not_configured", "ai review repository is not configured")
+		return
+	}
+	asset, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	var req struct {
+		Model         string         `json:"model"`
+		Verdict       string         `json:"verdict"`
+		Score         *float64       `json:"score"`
+		Summary       string         `json:"summary"`
+		Rubric        string         `json:"rubric"`
+		Confidence    *float64       `json:"confidence"`
+		PromptVersion string         `json:"prompt_version"`
+		ReviewJobID   string         `json:"review_job_id"`
+		RawResponseID string         `json:"raw_response_id"`
+		Metadata      map[string]any `json:"metadata"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	req.Model = strings.TrimSpace(req.Model)
+	req.Verdict = strings.TrimSpace(req.Verdict)
+	req.Summary = strings.TrimSpace(req.Summary)
+	if req.Verdict == "" || !validAIReviewVerdicts[req.Verdict] {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid ai review verdict")
+		return
+	}
+	if req.Score != nil && (*req.Score < 0 || *req.Score > 1) {
+		writeError(c, http.StatusBadRequest, "invalid_request", "score must be between 0 and 1")
+		return
+	}
+	if req.Confidence != nil && (*req.Confidence < 0 || *req.Confidence > 1) {
+		writeError(c, http.StatusBadRequest, "invalid_request", "confidence must be between 0 and 1")
+		return
+	}
+	review := &store.AIReview{
+		ID:            "airev-" + shortID(),
+		TenantID:      Tenant(c),
+		AssetID:       asset.ID,
+		Model:         req.Model,
+		Verdict:       req.Verdict,
+		Score:         req.Score,
+		Summary:       req.Summary,
+		Rubric:        strings.TrimSpace(req.Rubric),
+		Confidence:    req.Confidence,
+		PromptVersion: strings.TrimSpace(req.PromptVersion),
+		ReviewJobID:   strings.TrimSpace(req.ReviewJobID),
+		RawResponseID: strings.TrimSpace(req.RawResponseID),
+		Metadata:      store.JSONMap(req.Metadata),
+	}
+	if err := h.deps.AIReviews.CreateAIReview(c.Request.Context(), review); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, aiReviewResponse(review))
+}
+
 func (h handler) presign(c *gin.Context) {
 	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
 	if err != nil {
@@ -1136,6 +1492,70 @@ func assetResponse(a *store.Asset, file bool) gin.H {
 	return out
 }
 
+func aiReviewResponse(r *store.AIReview) gin.H {
+	out := gin.H{
+		"id":              r.ID,
+		"object":          "ai_review",
+		"asset_id":        r.AssetID,
+		"model":           r.Model,
+		"verdict":         r.Verdict,
+		"score":           r.Score,
+		"summary":         r.Summary,
+		"rubric":          r.Rubric,
+		"confidence":      r.Confidence,
+		"prompt_version":  r.PromptVersion,
+		"review_job_id":   r.ReviewJobID,
+		"raw_response_id": r.RawResponseID,
+		"metadata":        r.Metadata,
+		"created_at":      r.CreatedAt.Unix(),
+		"updated_at":      r.UpdatedAt.Unix(),
+	}
+	return out
+}
+
+func assetReviewResponse(r *store.AssetReview) gin.H {
+	items := make([]gin.H, 0, len(r.Items))
+	for _, item := range r.Items {
+		items = append(items, assetReviewItemResponse(&item))
+	}
+	out := gin.H{
+		"id":                 r.ID,
+		"object":             "asset_review",
+		"title":              r.Title,
+		"status":             r.Status,
+		"reference_asset_id": r.ReferenceID,
+		"selected_asset_id":  r.SelectedAssetID,
+		"reviewer":           r.Reviewer,
+		"source":             r.Source,
+		"trace_id":           r.TraceID,
+		"metadata":           r.Metadata,
+		"items":              items,
+		"created_at":         r.CreatedAt.Unix(),
+		"updated_at":         r.UpdatedAt.Unix(),
+	}
+	if r.CompletedAt != nil {
+		out["completed_at"] = r.CompletedAt.Unix()
+	} else {
+		out["completed_at"] = nil
+	}
+	return out
+}
+
+func assetReviewItemResponse(item *store.AssetReviewItem) gin.H {
+	return gin.H{
+		"id":         item.ID,
+		"object":     "asset_review_item",
+		"review_id":  item.ReviewID,
+		"asset_id":   item.AssetID,
+		"decision":   item.Decision,
+		"note":       item.Note,
+		"score":      item.Score,
+		"metadata":   item.Metadata,
+		"created_at": item.CreatedAt.Unix(),
+		"updated_at": item.UpdatedAt.Unix(),
+	}
+}
+
 func storageKey(tenantID, purpose, id, filename string) string {
 	filename = path.Base(filename)
 	if filename == "." || filename == "/" {
@@ -1245,6 +1665,20 @@ func tagModels(tags []string) []store.Tag {
 	out := make([]store.Tag, 0, len(tags))
 	for _, t := range tags {
 		out = append(out, store.Tag{Name: t})
+	}
+	return out
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
 	}
 	return out
 }

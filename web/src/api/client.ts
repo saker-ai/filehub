@@ -33,6 +33,66 @@ export type AssetStats = {
   by_status: Record<string, number>
 }
 
+export type AIReview = {
+  id: string
+  object: 'ai_review'
+  asset_id: string
+  model?: string
+  verdict: string
+  score?: number | null
+  summary?: string
+  rubric?: string
+  confidence?: number | null
+  prompt_version?: string
+  review_job_id?: string
+  raw_response_id?: string
+  metadata?: Record<string, unknown>
+  created_at: number
+  updated_at?: number
+}
+
+export type AIReviewList = {
+  object: 'list'
+  data: AIReview[]
+  has_more: boolean
+}
+
+export type AssetReviewItem = {
+  id: string
+  object: 'asset_review_item'
+  review_id: string
+  asset_id: string
+  decision: string
+  note?: string
+  score?: number | null
+  metadata?: Record<string, unknown>
+  created_at: number
+  updated_at?: number
+}
+
+export type AssetReview = {
+  id: string
+  object: 'asset_review'
+  title: string
+  status: string
+  reference_asset_id?: string
+  selected_asset_id?: string
+  reviewer?: string
+  source?: string
+  trace_id?: string
+  metadata?: Record<string, unknown>
+  items: AssetReviewItem[]
+  created_at: number
+  updated_at?: number
+  completed_at?: number | null
+}
+
+export type AssetReviewList = {
+  object: 'list'
+  data: AssetReview[]
+  has_more: boolean
+}
+
 export type AssetFilter = {
   filename?: string
   purpose?: string
@@ -195,5 +255,54 @@ export async function presignAsset(id: string, expiresIn = '168h'): Promise<{ ur
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expires_in: expiresIn }),
+  })
+}
+
+export async function listAssetAIReviews(assetID: string, limit = 20): Promise<AIReviewList> {
+  const search = new URLSearchParams({ limit: String(limit) })
+  return request<AIReviewList>(`${BASE}/assets/${encodeURIComponent(assetID)}/ai-reviews?${search}`)
+}
+
+export async function createAssetAIReview(assetID: string, review: { model?: string; verdict: string; score?: number | null; summary?: string; rubric?: string; confidence?: number | null; prompt_version?: string; review_job_id?: string; raw_response_id?: string; metadata?: Record<string, unknown> }): Promise<AIReview> {
+  return request<AIReview>(`${BASE}/assets/${encodeURIComponent(assetID)}/ai-reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(review),
+  })
+}
+
+export async function listAssetReviews(params: { status?: string; reviewer?: string; source?: string; limit?: number; offset?: number } = {}): Promise<AssetReviewList> {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') search.set(key, String(value))
+  })
+  return request<AssetReviewList>(`${BASE}/reviews?${search}`)
+}
+
+export async function createAssetReview(review: { title?: string; status?: string; reference_asset_id?: string; selected_asset_id?: string; reviewer?: string; source?: string; trace_id?: string; metadata?: Record<string, unknown>; asset_ids: string[] }): Promise<AssetReview> {
+  return request<AssetReview>(`${BASE}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(review),
+  })
+}
+
+export async function getAssetReview(id: string): Promise<AssetReview> {
+  return request<AssetReview>(`${BASE}/reviews/${encodeURIComponent(id)}`)
+}
+
+export async function updateAssetReview(id: string, patch: { title?: string; status?: string; reference_asset_id?: string; selected_asset_id?: string; reviewer?: string; source?: string; trace_id?: string; metadata?: Record<string, unknown> }): Promise<AssetReview> {
+  return request<AssetReview>(`${BASE}/reviews/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export async function updateAssetReviewItem(reviewID: string, assetID: string, patch: { decision: string; note?: string; score?: number | null; metadata?: Record<string, unknown> }): Promise<AssetReview> {
+  return request<AssetReview>(`${BASE}/reviews/${encodeURIComponent(reviewID)}/items/${encodeURIComponent(assetID)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
   })
 }

@@ -50,6 +50,59 @@ type AssetMetadataModel struct {
 
 func (AssetMetadataModel) TableName() string { return "asset_metadata" }
 
+type AIReviewModel struct {
+	ID            string `gorm:"type:text;primaryKey"`
+	TenantID      string `gorm:"type:text;not null;index:idx_ai_review_tenant_asset,priority:1"`
+	AssetID       string `gorm:"type:text;not null;index:idx_ai_review_tenant_asset,priority:2;index:idx_ai_review_asset_created,priority:1"`
+	Model         string `gorm:"type:text;index:idx_ai_review_model"`
+	Verdict       string `gorm:"type:text;index:idx_ai_review_verdict"`
+	Score         *float64
+	Summary       string `gorm:"type:text"`
+	Rubric        string `gorm:"type:text;index:idx_ai_review_rubric"`
+	Confidence    *float64
+	PromptVersion string        `gorm:"type:text"`
+	ReviewJobID   string        `gorm:"type:text;index:idx_ai_review_job"`
+	RawResponseID string        `gorm:"type:text"`
+	Metadata      store.JSONMap `gorm:"type:text"`
+	CreatedAt     time.Time     `gorm:"not null;index:idx_ai_review_asset_created,priority:2"`
+	UpdatedAt     time.Time     `gorm:"not null"`
+}
+
+func (AIReviewModel) TableName() string { return "ai_reviews" }
+
+type AssetReviewModel struct {
+	ID              string                 `gorm:"type:text;primaryKey"`
+	TenantID        string                 `gorm:"type:text;not null;index:idx_asset_review_tenant_status,priority:1"`
+	Title           string                 `gorm:"type:text;not null"`
+	Status          string                 `gorm:"type:text;not null;index:idx_asset_review_tenant_status,priority:2"`
+	ReferenceID     string                 `gorm:"type:text;index:idx_asset_review_reference"`
+	SelectedAssetID string                 `gorm:"type:text;index:idx_asset_review_selected"`
+	Reviewer        string                 `gorm:"type:text;index:idx_asset_review_reviewer"`
+	Source          string                 `gorm:"type:text;index:idx_asset_review_source"`
+	TraceID         string                 `gorm:"type:text"`
+	Metadata        store.JSONMap          `gorm:"type:text"`
+	Items           []AssetReviewItemModel `gorm:"foreignKey:ReviewID;references:ID"`
+	CreatedAt       time.Time              `gorm:"not null;index:idx_asset_review_created"`
+	UpdatedAt       time.Time              `gorm:"not null"`
+	CompletedAt     *time.Time             `gorm:"index:idx_asset_review_completed"`
+}
+
+func (AssetReviewModel) TableName() string { return "asset_reviews" }
+
+type AssetReviewItemModel struct {
+	ID        string `gorm:"type:text;primaryKey"`
+	ReviewID  string `gorm:"type:text;not null;index:idx_asset_review_item_review;uniqueIndex:idx_asset_review_item_unique,priority:1"`
+	AssetID   string `gorm:"type:text;not null;index:idx_asset_review_item_asset;uniqueIndex:idx_asset_review_item_unique,priority:2"`
+	Decision  string `gorm:"type:text;index:idx_asset_review_item_decision"`
+	Note      string `gorm:"type:text"`
+	Score     *float64
+	Metadata  store.JSONMap `gorm:"type:text"`
+	CreatedAt time.Time     `gorm:"not null"`
+	UpdatedAt time.Time     `gorm:"not null"`
+}
+
+func (AssetReviewItemModel) TableName() string { return "asset_review_items" }
+
 type UploadSessionModel struct {
 	ID               string          `gorm:"type:text;primaryKey"`
 	TenantID         string          `gorm:"type:text;not null;index:idx_upload_tenant"`
@@ -121,6 +174,121 @@ func fromAsset(a *store.Asset) AssetModel {
 		CreatedAt:   a.CreatedAt,
 		UpdatedAt:   a.UpdatedAt,
 		ExpiresAt:   a.ExpiresAt,
+	}
+}
+
+func toAIReview(m AIReviewModel) *store.AIReview {
+	return &store.AIReview{
+		ID:            m.ID,
+		TenantID:      m.TenantID,
+		AssetID:       m.AssetID,
+		Model:         m.Model,
+		Verdict:       m.Verdict,
+		Score:         m.Score,
+		Summary:       m.Summary,
+		Rubric:        m.Rubric,
+		Confidence:    m.Confidence,
+		PromptVersion: m.PromptVersion,
+		ReviewJobID:   m.ReviewJobID,
+		RawResponseID: m.RawResponseID,
+		Metadata:      m.Metadata,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+	}
+}
+
+func fromAIReview(r *store.AIReview) AIReviewModel {
+	return AIReviewModel{
+		ID:            r.ID,
+		TenantID:      r.TenantID,
+		AssetID:       r.AssetID,
+		Model:         r.Model,
+		Verdict:       r.Verdict,
+		Score:         r.Score,
+		Summary:       r.Summary,
+		Rubric:        r.Rubric,
+		Confidence:    r.Confidence,
+		PromptVersion: r.PromptVersion,
+		ReviewJobID:   r.ReviewJobID,
+		RawResponseID: r.RawResponseID,
+		Metadata:      r.Metadata,
+		CreatedAt:     r.CreatedAt,
+		UpdatedAt:     r.UpdatedAt,
+	}
+}
+
+func toAssetReview(m AssetReviewModel) *store.AssetReview {
+	items := make([]store.AssetReviewItem, 0, len(m.Items))
+	for _, item := range m.Items {
+		items = append(items, *toAssetReviewItem(item))
+	}
+	return &store.AssetReview{
+		ID:              m.ID,
+		TenantID:        m.TenantID,
+		Title:           m.Title,
+		Status:          m.Status,
+		ReferenceID:     m.ReferenceID,
+		SelectedAssetID: m.SelectedAssetID,
+		Reviewer:        m.Reviewer,
+		Source:          m.Source,
+		TraceID:         m.TraceID,
+		Metadata:        m.Metadata,
+		Items:           items,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+		CompletedAt:     m.CompletedAt,
+	}
+}
+
+func fromAssetReview(r *store.AssetReview) AssetReviewModel {
+	items := make([]AssetReviewItemModel, 0, len(r.Items))
+	for _, item := range r.Items {
+		item.ReviewID = r.ID
+		items = append(items, fromAssetReviewItem(&item))
+	}
+	return AssetReviewModel{
+		ID:              r.ID,
+		TenantID:        r.TenantID,
+		Title:           r.Title,
+		Status:          r.Status,
+		ReferenceID:     r.ReferenceID,
+		SelectedAssetID: r.SelectedAssetID,
+		Reviewer:        r.Reviewer,
+		Source:          r.Source,
+		TraceID:         r.TraceID,
+		Metadata:        r.Metadata,
+		Items:           items,
+		CreatedAt:       r.CreatedAt,
+		UpdatedAt:       r.UpdatedAt,
+		CompletedAt:     r.CompletedAt,
+	}
+}
+
+func toAssetReviewItem(m AssetReviewItemModel) *store.AssetReviewItem {
+	return &store.AssetReviewItem{
+		ID:        m.ID,
+		ReviewID:  m.ReviewID,
+		AssetID:   m.AssetID,
+		Decision:  m.Decision,
+		Note:      m.Note,
+		Score:     m.Score,
+		Metadata:  m.Metadata,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+}
+
+func fromAssetReviewItem(item *store.AssetReviewItem) AssetReviewItemModel {
+	return AssetReviewItemModel{
+		ID:        item.ID,
+		ReviewID:  item.ReviewID,
+		AssetID:   item.AssetID,
+		Decision:  item.Decision,
+		Note:      item.Note,
+		Score:     item.Score,
+		Metadata:  item.Metadata,
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
 	}
 }
 

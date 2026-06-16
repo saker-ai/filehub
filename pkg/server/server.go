@@ -47,7 +47,7 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 	pipeline := processing.New(cfg.ProcessingConcurrency, blobs, db, logger)
 	pipeline.ObserveProcessing(metrics.ObserveProcessing)
 	router := api.NewRouter(api.RouterDeps{
-		Config: cfg, Assets: db, Uploads: db, Storage: blobs, Pipeline: pipeline, Metrics: metrics,
+		Config: cfg, Assets: db, Uploads: db, AIReviews: db, Reviews: db, Storage: blobs, Pipeline: pipeline, Metrics: metrics,
 	})
 	return &Server{
 		cfg:      cfg,
