@@ -172,6 +172,12 @@ func TestRouterOpenAIFilesAndChunkUpload(t *testing.T) {
 	if !strings.HasPrefix(fileID, "file-") || file["object"] != "file" {
 		t.Fatalf("file response = %#v", file)
 	}
+	if file["assetId"] != fileID || file["file_id"] != fileID {
+		t.Fatalf("file aliases = assetId:%v file_id:%v, want %s", file["assetId"], file["file_id"], fileID)
+	}
+	if file["content_type"] == "" || file["mime_type"] == "" {
+		t.Fatalf("file content type aliases missing: %#v", file)
+	}
 	content := ts.request(t, http.MethodGet, "/v1/files/"+fileID+"/content?download=true", nil, nil)
 	if content.Code != http.StatusOK {
 		t.Fatalf("file content status=%d body=%s", content.Code, content.Body.String())
