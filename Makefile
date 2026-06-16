@@ -11,10 +11,11 @@ ASSETHUB_DSN ?= sqlite://.synapse/stack/assethub.db
 ASSETHUB_STORAGE_BACKEND ?= osfs
 ASSETHUB_STORAGE_DIR ?= .synapse/stack/assethub-data
 ASSETHUB_PID_FILE ?= .synapse/stack/assethub.pid
+VITE_BASE_PATH ?= ./
 
 # Build frontend (React + Vite)
 frontend:
-	cd web && npm install && npm run build
+	cd web && npm install && VITE_BASE_PATH="$(VITE_BASE_PATH)" npm run build
 
 # Build the assethub binary (includes embedded frontend)
 build: frontend

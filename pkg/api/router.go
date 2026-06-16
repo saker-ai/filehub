@@ -70,9 +70,11 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 		}
 		staticFS := http.FS(staticSub)
 		r.StaticFS("/static", staticFS)
-		r.GET("/assets/:file", func(c *gin.Context) {
+		serveAsset := func(c *gin.Context) {
 			c.FileFromFS("assets/"+c.Param("file"), staticFS)
-		})
+		}
+		r.GET("/assets/:file", serveAsset)
+		r.HEAD("/assets/:file", serveAsset)
 		serveIndex := func(c *gin.Context) {
 			data, err := fs.ReadFile(staticSub, "index.html")
 			if err != nil {
@@ -155,7 +157,8 @@ func newHandler(deps RouterDeps) handler {
 }
 
 var validPurposes = map[string]bool{
-	"assistants": true, "batch": true, "fine-tune": true, "media": true, "vector-store": true, "general": true,
+	"assistants": true, "batch": true, "fine-tune": true, "vision": true, "user_data": true, "evals": true,
+	"media": true, "vector-store": true, "general": true,
 }
 
 func (h handler) acquireUpload(c *gin.Context) bool {

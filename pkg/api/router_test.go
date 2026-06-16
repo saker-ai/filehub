@@ -32,6 +32,7 @@ import (
 	"github.com/saker-ai/assethub/pkg/processing"
 	"github.com/saker-ai/assethub/pkg/storage"
 	"github.com/saker-ai/assethub/pkg/store/gormstore"
+	"github.com/saker-ai/assethub/web"
 	"github.com/saker-ai/internaljwt"
 )
 
@@ -634,6 +635,39 @@ func TestRouterOpenAPIAndMetrics(t *testing.T) {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("metrics missing %q in:\n%s", marker, body)
 		}
+	}
+}
+
+func TestStaticAssetRoutesSupportGetAndHead(t *testing.T) {
+	ts := newTestServer(t)
+	entries, err := web.StaticFS.ReadDir("static/assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asset string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || (!strings.HasSuffix(name, ".css") && !strings.HasSuffix(name, ".js")) {
+			continue
+		}
+		asset = name
+		break
+	}
+	if asset == "" {
+		t.Skip("no built JS/CSS static asset present")
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			rec := ts.request(t, method, "/assets/"+asset, nil, nil)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s /assets/%s status=%d body=%s", method, asset, rec.Code, rec.Body.String())
+			}
+			contentType := rec.Header().Get("Content-Type")
+			if strings.HasPrefix(contentType, "text/html") {
+				t.Fatalf("%s /assets/%s Content-Type=%q, want static asset MIME", method, asset, contentType)
+			}
+		})
 	}
 }
 
