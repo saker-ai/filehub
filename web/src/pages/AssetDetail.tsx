@@ -5,7 +5,7 @@ import { CodeBlock } from '../components/CodeBlock'
 import { formatBytes } from '../components/AssetCard'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo, useAuthObjectURL } from '../components/AuthMedia'
 
-export function AssetDetail({ assetID, onClose, onNavigate }: { assetID: string; onClose: () => void; onNavigate?: (direction: -1 | 1) => void }) {
+export function AssetDetail({ assetID, positionLabel, canNavigatePrev = true, canNavigateNext = true, onClose, onNavigate }: { assetID: string; positionLabel?: string; canNavigatePrev?: boolean; canNavigateNext?: boolean; onClose: () => void; onNavigate?: (direction: -1 | 1) => void }) {
   const { t } = useTranslation()
   const [asset, setAsset] = useState<Asset | null>(null)
   const [tags, setTags] = useState('')
@@ -85,10 +85,11 @@ export function AssetDetail({ assetID, onClose, onNavigate }: { assetID: string;
             <span className={`status ${asset.status}`}>{asset.status}</span>
             <h2>{asset.filename}</h2>
             <p>{asset.id} · {formatBytes(asset.bytes)}</p>
+            {positionLabel ? <span className="detail-position">{positionLabel}</span> : null}
           </div>
           <div className="row actions">
-            {onNavigate ? <button type="button" onClick={() => onNavigate(-1)}>{t('previous')}</button> : null}
-            {onNavigate ? <button type="button" onClick={() => onNavigate(1)}>{t('next')}</button> : null}
+            {onNavigate ? <button type="button" disabled={!canNavigatePrev} onClick={() => onNavigate(-1)}>{t('previous')}</button> : null}
+            {onNavigate ? <button type="button" disabled={!canNavigateNext} onClick={() => onNavigate(1)}>{t('next')}</button> : null}
             <button type="button" onClick={onClose} aria-label={t('close')}>{t('close')}</button>
           </div>
         </header>

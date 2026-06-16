@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchAssetBlob } from '../api/client'
 
 type BlobState = {
@@ -6,10 +6,11 @@ type BlobState = {
   error: string
 }
 
-export function useAuthObjectURL(src: string) {
+export function useAuthObjectURL(src: string, enabled = true) {
   const [state, setState] = useState<BlobState>({ url: '', error: '' })
 
   useEffect(() => {
+    if (!enabled) return
     let alive = true
     let objectURL = ''
     setState({ url: '', error: '' })
@@ -27,14 +28,30 @@ export function useAuthObjectURL(src: string) {
       alive = false
       if (objectURL) URL.revokeObjectURL(objectURL)
     }
-  }, [src])
+  }, [enabled, src])
 
   return state
 }
 
-export function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
-  const { url, error } = useAuthObjectURL(src)
-  if (error) return <span className="preview-error">{error}</span>
+export function AuthImage({ src, alt, className, fallback, lazy = false }: { src: string; alt: string; className?: string; fallback?: string; lazy?: boolean }) {
+  const ref = useRef<HTMLSpanElement | null>(null)
+  const [visible, setVisible] = useState(!lazy)
+  useEffect(() => {
+    if (!lazy || visible) return
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '240px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [lazy, visible])
+  const { url, error } = useAuthObjectURL(src, visible)
+  if (!visible) return <span ref={ref} className="preview-loading">Loading</span>
+  if (error) return <span className={fallback ? 'preview-fallback' : 'preview-error'}>{fallback || error}</span>
   if (!url) return <span className="preview-loading">Loading</span>
   return <img src={url} alt={alt} className={className} />
 }

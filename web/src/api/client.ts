@@ -1,3 +1,5 @@
+import { assetHubURL } from '../basePath'
+
 export type Asset = {
   id: string
   object: 'asset' | 'file'
@@ -57,11 +59,10 @@ export type BulkDeleteResult = {
   data: Array<{ id: string; deleted: boolean; error: string }>
 }
 
-const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '')
-const BASE = `${BASE_PATH}/v1`
+const BASE = assetHubURL('/v1')
 
 export function assetHubPath(path: string): string {
-  return `${BASE_PATH}${path.startsWith('/') ? path : `/${path}`}`
+  return assetHubURL(path)
 }
 
 export function getAPIKey(): string {
