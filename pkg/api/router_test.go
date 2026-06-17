@@ -780,6 +780,24 @@ func TestStaticAssetRoutesSupportGetAndHead(t *testing.T) {
 	}
 }
 
+func TestStaticIndexUsesRelativeAssetURLs(t *testing.T) {
+	ts := newTestServer(t)
+
+	rec := ts.request(t, http.MethodGet, "/", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, marker := range []string{`src="/assets/`, `href="/assets/`, `src="/static/assets/`, `href="/static/assets/`} {
+		if strings.Contains(body, marker) {
+			t.Fatalf("index.html contains non-relocatable asset URL %q in:\n%s", marker, body)
+		}
+	}
+	if !strings.Contains(body, `./assets/`) {
+		t.Fatalf("index.html does not contain relative asset URLs:\n%s", body)
+	}
+}
+
 type testServer struct {
 	router *gin.Engine
 	db     *gormstore.Store
