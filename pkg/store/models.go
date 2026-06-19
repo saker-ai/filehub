@@ -112,6 +112,8 @@ type Tag struct {
 type UploadSession struct {
 	ID               string
 	TenantID         string
+	AssetID          string
+	Mode             string
 	Filename         string
 	Purpose          string
 	ContentType      string

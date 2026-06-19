@@ -106,6 +106,8 @@ func (AssetReviewItemModel) TableName() string { return "asset_review_items" }
 type UploadSessionModel struct {
 	ID               string          `gorm:"type:text;primaryKey"`
 	TenantID         string          `gorm:"type:text;not null;index:idx_upload_tenant"`
+	AssetID          string          `gorm:"type:text;index:idx_upload_asset"`
+	Mode             string          `gorm:"type:text;not null;default:proxy"`
 	Filename         string          `gorm:"type:text;not null"`
 	Purpose          string          `gorm:"type:text;not null"`
 	ContentType      string          `gorm:"type:text"`
@@ -296,6 +298,8 @@ func toSession(m UploadSessionModel) *store.UploadSession {
 	return &store.UploadSession{
 		ID:               m.ID,
 		TenantID:         m.TenantID,
+		AssetID:          m.AssetID,
+		Mode:             m.Mode,
 		Filename:         m.Filename,
 		Purpose:          m.Purpose,
 		ContentType:      m.ContentType,
@@ -316,6 +320,8 @@ func fromSession(s *store.UploadSession) UploadSessionModel {
 	return UploadSessionModel{
 		ID:               s.ID,
 		TenantID:         s.TenantID,
+		AssetID:          s.AssetID,
+		Mode:             s.Mode,
 		Filename:         s.Filename,
 		Purpose:          s.Purpose,
 		ContentType:      s.ContentType,

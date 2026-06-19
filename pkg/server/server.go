@@ -143,6 +143,11 @@ func (s *Server) collectExpired(ctx context.Context) {
 		return
 	}
 	for _, session := range sessions {
+		if session.ProviderUploadID != "" {
+			if err := s.blobs.AbortMultipartUpload(ctx, session.StorageKey, session.ProviderUploadID); err != nil {
+				s.logger.Warn("upload multipart abort failed", "upload_id", session.ID, "error", err)
+			}
+		}
 		if err := s.blobs.DeleteRecursive(ctx, storage.ChunkPrefix(session.ID)); err != nil {
 			s.logger.Warn("upload chunk gc failed", "upload_id", session.ID, "error", err)
 		}

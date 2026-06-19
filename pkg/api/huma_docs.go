@@ -200,6 +200,7 @@ type docCreateExternalInput struct {
 
 type docCreateUploadInput struct {
 	Body struct {
+		Mode        string         `json:"mode" enum:"proxy,direct,direct_multipart" doc:"Upload mode. Empty defaults to proxy."`
 		Filename    string         `json:"filename" required:"true"`
 		Purpose     string         `json:"purpose" required:"true" enum:"assistants,batch,fine-tune,media,vector-store,general"`
 		ContentType string         `json:"content_type"`
@@ -212,9 +213,38 @@ type docCreateUploadInput struct {
 
 type docCreateUploadOutput struct {
 	Body struct {
-		UploadID  string `json:"upload_id"`
-		ChunkSize int64  `json:"chunk_size"`
-		ExpiresAt int64  `json:"expires_at"`
+		UploadID     string            `json:"upload_id"`
+		AssetID      string            `json:"asset_id"`
+		Mode         string            `json:"mode"`
+		ChunkSize    int64             `json:"chunk_size"`
+		Method       string            `json:"method"`
+		URL          string            `json:"url"`
+		Headers      map[string]string `json:"headers"`
+		URLExpiresAt int64             `json:"url_expires_at"`
+		ExpiresAt    int64             `json:"expires_at"`
+	}
+}
+
+type docPresignUploadOutput struct {
+	Body struct {
+		UploadID  string            `json:"upload_id"`
+		AssetID   string            `json:"asset_id"`
+		Method    string            `json:"method"`
+		URL       string            `json:"url"`
+		Headers   map[string]string `json:"headers"`
+		ExpiresAt int64             `json:"expires_at"`
+	}
+}
+
+type docPresignUploadPartOutput struct {
+	Body struct {
+		UploadID  string            `json:"upload_id"`
+		AssetID   string            `json:"asset_id"`
+		Part      int               `json:"part"`
+		Method    string            `json:"method"`
+		URL       string            `json:"url"`
+		Headers   map[string]string `json:"headers"`
+		ExpiresAt int64             `json:"expires_at"`
 	}
 }
 
@@ -263,9 +293,11 @@ func registerOpenAPIDocs(api huma.API) {
 	registerDoc[docThumbnailInput, struct{}](api, http.MethodGet, "/v1/assets/{id}/thumbnail", "asset-thumbnail", "Assets", "Get or generate asset thumbnail", security)
 
 	registerDoc[docSignedDownloadInput, struct{}](api, http.MethodGet, "/v1/dl/{id}", "signed-download", "Downloads", "Download via signed URL", nil)
-	registerDoc[docCreateUploadInput, docCreateUploadOutput](api, http.MethodPost, "/v1/uploads", "create-upload", "Uploads", "Create chunk upload session", security)
+	registerDoc[docCreateUploadInput, docCreateUploadOutput](api, http.MethodPost, "/v1/uploads", "create-upload", "Uploads", "Create upload session", security)
+	registerDoc[docUploadIDInput, docPresignUploadOutput](api, http.MethodPost, "/v1/uploads/{id}/presign", "presign-upload", "Uploads", "Create direct upload URL", security)
+	registerDoc[docPartInput, docPresignUploadPartOutput](api, http.MethodPost, "/v1/uploads/{id}/parts/{part}/presign", "presign-upload-part", "Uploads", "Create direct multipart part upload URL", security)
 	registerDoc[docPartInput, docOKOutput](api, http.MethodPut, "/v1/uploads/{id}/parts/{part}", "upload-part", "Uploads", "Upload one chunk", security)
-	registerDoc[docCompleteUploadInput, docAssetOutput](api, http.MethodPost, "/v1/uploads/{id}/complete", "complete-upload", "Uploads", "Complete chunk upload", security)
+	registerDoc[docCompleteUploadInput, docAssetOutput](api, http.MethodPost, "/v1/uploads/{id}/complete", "complete-upload", "Uploads", "Complete upload", security)
 	registerDoc[docUploadIDInput, docOKOutput](api, http.MethodDelete, "/v1/uploads/{id}", "cancel-upload", "Uploads", "Cancel chunk upload", security)
 }
 

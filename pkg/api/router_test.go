@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -397,6 +398,144 @@ func TestRouterNativeS3MultipartUpload(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("native presign GET status = %d", resp.StatusCode)
+	}
+}
+
+func TestRouterDirectS3Upload(t *testing.T) {
+	s3fake := newFakeS3Server(t)
+	cfg := config.Defaults()
+	cfg.Storage.Backend = config.BackendS3
+	cfg.Storage.S3Endpoint = s3fake.URL
+	cfg.Storage.S3Bucket = "test-bucket"
+	cfg.Storage.S3Region = "us-east-1"
+	cfg.Storage.S3AccessKey = "test-key"
+	cfg.Storage.S3SecretKey = "test-secret"
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	ts := newTestServerWithConfig(t, cfg)
+
+	create := ts.request(t, http.MethodPost, "/v1/uploads", bytes.NewBufferString(`{"mode":"direct","filename":"direct.txt","purpose":"media","content_type":"text/plain","total_bytes":11}`), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusOK {
+		t.Fatalf("create direct upload status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		UploadID string            `json:"upload_id"`
+		AssetID  string            `json:"asset_id"`
+		URL      string            `json:"url"`
+		Headers  map[string]string `json:"headers"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.UploadID == "" || created.AssetID == "" || created.URL == "" {
+		t.Fatalf("direct upload create response missing fields: %#v", created)
+	}
+	putReq, err := http.NewRequest(http.MethodPut, created.URL, bytes.NewBufferString("hello world"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range created.Headers {
+		putReq.Header.Set(key, value)
+	}
+	if putReq.Header.Get("Content-Type") == "" {
+		putReq.Header.Set("Content-Type", "text/plain")
+	}
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = putResp.Body.Close()
+	if putResp.StatusCode != http.StatusOK {
+		t.Fatalf("direct put status=%d", putResp.StatusCode)
+	}
+	complete := ts.request(t, http.MethodPost, "/v1/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(`{}`), map[string]string{"Content-Type": "application/json"})
+	if complete.Code != http.StatusOK {
+		t.Fatalf("complete direct status=%d body=%s", complete.Code, complete.Body.String())
+	}
+	var asset map[string]any
+	if err := json.Unmarshal(complete.Body.Bytes(), &asset); err != nil {
+		t.Fatal(err)
+	}
+	if asset["id"] != created.AssetID || asset["bytes"].(float64) != 11 {
+		t.Fatalf("direct asset = %#v, want id %s and 11 bytes", asset, created.AssetID)
+	}
+	ts.waitReady(t, created.AssetID)
+	body := ts.request(t, http.MethodGet, "/v1/assets/"+created.AssetID+"/content", nil, nil)
+	if got := body.Body.String(); got != "hello world" {
+		t.Fatalf("direct content = %q, want hello world", got)
+	}
+}
+
+func TestRouterDirectS3MultipartUpload(t *testing.T) {
+	s3fake := newFakeS3Server(t)
+	cfg := config.Defaults()
+	cfg.Storage.Backend = config.BackendS3
+	cfg.Storage.S3Endpoint = s3fake.URL
+	cfg.Storage.S3Bucket = "test-bucket"
+	cfg.Storage.S3Region = "us-east-1"
+	cfg.Storage.S3AccessKey = "test-key"
+	cfg.Storage.S3SecretKey = "test-secret"
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	ts := newTestServerWithConfig(t, cfg)
+
+	create := ts.request(t, http.MethodPost, "/v1/uploads", bytes.NewBufferString(`{"mode":"direct_multipart","filename":"direct-large.txt","purpose":"media","content_type":"text/plain","total_bytes":11}`), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusOK {
+		t.Fatalf("create direct multipart status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		UploadID string `json:"upload_id"`
+		AssetID  string `json:"asset_id"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if s3fake.createCalls.Load() != 1 {
+		t.Fatalf("direct multipart create calls = %d, want 1", s3fake.createCalls.Load())
+	}
+	etags := make([]string, 0, 2)
+	for i, data := range []string{"hello ", "world"} {
+		partNum := i + 1
+		presign := ts.request(t, http.MethodPost, "/v1/uploads/"+created.UploadID+"/parts/"+strconv.Itoa(partNum)+"/presign", nil, nil)
+		if presign.Code != http.StatusOK {
+			t.Fatalf("presign part %d status=%d body=%s", partNum, presign.Code, presign.Body.String())
+		}
+		var signed struct {
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		}
+		if err := json.Unmarshal(presign.Body.Bytes(), &signed); err != nil {
+			t.Fatal(err)
+		}
+		putReq, err := http.NewRequest(http.MethodPut, signed.URL, bytes.NewBufferString(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, value := range signed.Headers {
+			putReq.Header.Set(key, value)
+		}
+		putResp, err := http.DefaultClient.Do(putReq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = putResp.Body.Close()
+		if putResp.StatusCode != http.StatusOK {
+			t.Fatalf("direct part %d put status=%d", partNum, putResp.StatusCode)
+		}
+		etags = append(etags, putResp.Header.Get("ETag"))
+	}
+	completeBody := fmt.Sprintf(`{"parts":[{"part":1,"etag":%q},{"part":2,"etag":%q}]}`, etags[0], etags[1])
+	complete := ts.request(t, http.MethodPost, "/v1/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(completeBody), map[string]string{"Content-Type": "application/json"})
+	if complete.Code != http.StatusOK {
+		t.Fatalf("complete direct multipart status=%d body=%s", complete.Code, complete.Body.String())
+	}
+	if s3fake.uploadPartCalls.Load() != 2 || s3fake.completeCalls.Load() != 1 {
+		t.Fatalf("direct multipart calls upload=%d complete=%d, want 2/1", s3fake.uploadPartCalls.Load(), s3fake.completeCalls.Load())
+	}
+	ts.waitReady(t, created.AssetID)
+	body := ts.request(t, http.MethodGet, "/v1/assets/"+created.AssetID+"/content", nil, nil)
+	if got := body.Body.String(); got != "hello world" {
+		t.Fatalf("direct multipart content = %q, want hello world", got)
 	}
 }
 
@@ -1007,6 +1146,7 @@ type fakeS3Server struct {
 	server          *httptest.Server
 	mu              sync.Mutex
 	objects         map[string][]byte
+	contentTypes    map[string]string
 	uploads         map[string]map[int][]byte
 	createCalls     atomic.Int64
 	uploadPartCalls atomic.Int64
@@ -1017,8 +1157,9 @@ type fakeS3Server struct {
 func newFakeS3Server(t *testing.T) *fakeS3Server {
 	t.Helper()
 	f := &fakeS3Server{
-		objects: map[string][]byte{},
-		uploads: map[string]map[int][]byte{},
+		objects:      map[string][]byte{},
+		contentTypes: map[string]string{},
+		uploads:      map[string]map[int][]byte{},
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	f.URL = f.server.URL
@@ -1053,6 +1194,16 @@ func (f *fakeS3Server) handle(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		w.Header().Set("ETag", `"`+etag+`"`)
 		w.WriteHeader(http.StatusOK)
+	case r.Method == http.MethodPut:
+		data, _ := io.ReadAll(r.Body)
+		sum := md5.Sum(data)
+		etag := hex.EncodeToString(sum[:])
+		f.mu.Lock()
+		f.objects[key] = data
+		f.contentTypes[key] = r.Header.Get("Content-Type")
+		f.mu.Unlock()
+		w.Header().Set("ETag", `"`+etag+`"`)
+		w.WriteHeader(http.StatusOK)
 	case r.Method == http.MethodPost && r.URL.Query().Get("uploadId") != "":
 		f.completeCalls.Add(1)
 		uploadID := r.URL.Query().Get("uploadId")
@@ -1067,6 +1218,7 @@ func (f *fakeS3Server) handle(w http.ResponseWriter, r *http.Request) {
 			full.Write(f.uploads[uploadID][partNum])
 		}
 		f.objects[key] = full.Bytes()
+		f.contentTypes[key] = "text/plain"
 		delete(f.uploads, uploadID)
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/xml")
@@ -1085,12 +1237,16 @@ func (f *fakeS3Server) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodHead:
 		f.mu.Lock()
 		data, ok := f.objects[key]
+		contentType := f.contentTypes[key]
 		f.mu.Unlock()
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		if contentType != "" {
+			w.Header().Set("Content-Type", contentType)
+		}
 		w.WriteHeader(http.StatusOK)
 	case r.Method == http.MethodGet:
 		f.mu.Lock()

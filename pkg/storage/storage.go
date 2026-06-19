@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -41,6 +42,18 @@ type Store struct {
 type MultipartPart struct {
 	PartNum int
 	ETag    string
+}
+
+type PresignedRequest struct {
+	URL     string
+	Header  map[string]string
+	Expires time.Time
+}
+
+type ObjectInfo struct {
+	Bytes       int64
+	ContentType string
+	ETag        string
 }
 
 func New(ctx context.Context, cfg config.Config) (*Store, error) {
@@ -311,6 +324,78 @@ func (s *Store) PresignObjectURL(ctx context.Context, key string, ttl time.Durat
 		return "", fmt.Errorf("presign object: %w", err)
 	}
 	return out.URL, nil
+}
+
+func (s *Store) PresignPutObject(ctx context.Context, key, contentType string, ttl time.Duration) (*PresignedRequest, error) {
+	if !s.NativeMultipartSupported() {
+		return nil, fmt.Errorf("native upload presign unavailable for backend %s", s.backend)
+	}
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(s.s3Bucket),
+		Key:    aws.String(s.objectKey(key)),
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	out, err := s3.NewPresignClient(s.s3Client).PresignPutObject(ctx, input, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return nil, fmt.Errorf("presign put object: %w", err)
+	}
+	return presignedRequest(out.URL, out.SignedHeader, ttl), nil
+}
+
+func (s *Store) PresignUploadPart(ctx context.Context, key, uploadID string, partNum int, ttl time.Duration) (*PresignedRequest, error) {
+	if !s.NativeMultipartSupported() {
+		return nil, fmt.Errorf("native upload presign unavailable for backend %s", s.backend)
+	}
+	out, err := s3.NewPresignClient(s.s3Client).PresignUploadPart(ctx, &s3.UploadPartInput{
+		Bucket:     aws.String(s.s3Bucket),
+		Key:        aws.String(s.objectKey(key)),
+		UploadId:   aws.String(uploadID),
+		PartNumber: aws.Int32(int32(partNum)),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return nil, fmt.Errorf("presign upload part: %w", err)
+	}
+	return presignedRequest(out.URL, out.SignedHeader, ttl), nil
+}
+
+func (s *Store) HeadObject(ctx context.Context, key string) (*ObjectInfo, error) {
+	if s.nativeObjectStore() || s.NativeMultipartSupported() {
+		out, err := s.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+			Bucket: aws.String(s.s3Bucket),
+			Key:    aws.String(s.objectKey(key)),
+		})
+		if err != nil {
+			if isS3NotFound(err) {
+				return nil, fmt.Errorf("head object: %w", os.ErrNotExist)
+			}
+			return nil, fmt.Errorf("head object: %w", err)
+		}
+		info := &ObjectInfo{
+			ContentType: aws.ToString(out.ContentType),
+			ETag:        strings.Trim(aws.ToString(out.ETag), `"`),
+		}
+		if out.ContentLength != nil {
+			info.Bytes = *out.ContentLength
+		}
+		return info, nil
+	}
+	data, err := s.ReadAll(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return &ObjectInfo{Bytes: int64(len(data))}, nil
+}
+
+func presignedRequest(rawURL string, signedHeader http.Header, ttl time.Duration) *PresignedRequest {
+	header := map[string]string{}
+	for key, values := range signedHeader {
+		if len(values) > 0 {
+			header[key] = values[0]
+		}
+	}
+	return &PresignedRequest{URL: rawURL, Header: header, Expires: time.Now().Add(ttl)}
 }
 
 func (s *Store) NativeMultipartSupported() bool {

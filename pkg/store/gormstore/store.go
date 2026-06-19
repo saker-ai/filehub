@@ -817,6 +817,9 @@ func (s *Store) CreateSession(ctx context.Context, sess *store.UploadSession) er
 	if sess.Status == "" {
 		sess.Status = "pending"
 	}
+	if sess.Mode == "" {
+		sess.Mode = "proxy"
+	}
 	if sess.Metadata == nil {
 		sess.Metadata = store.JSONMap{}
 	}
