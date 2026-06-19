@@ -1483,6 +1483,218 @@ progress {
   font-size: 0.95rem;
 }
 
+.run-compare-page {
+  max-width: 1680px;
+}
+
+.run-setup {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.run-options {
+  align-items: end;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) minmax(280px, auto);
+}
+
+.run-summary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.run-summary div,
+.run-column-card,
+.run-cell,
+.run-row-label {
+  background: var(--bg-secondary);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+}
+
+.run-summary div {
+  padding: 10px 12px;
+}
+
+.run-summary dt,
+.run-cell dt {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.run-summary dd {
+  font-family: var(--font-heading), sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.run-column-editor {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.run-column-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.run-column-card header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.run-load-state {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.run-load-state.loaded {
+  color: var(--accent);
+}
+
+.run-load-state.error {
+  color: var(--danger);
+}
+
+.add-run-button {
+  min-height: 100%;
+}
+
+.run-matrix {
+  display: grid;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.run-matrix-header,
+.run-matrix-row {
+  display: grid;
+  gap: 12px;
+  min-width: 860px;
+}
+
+.run-matrix-header {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  position: sticky;
+  top: calc(var(--header-height) + 10px);
+  z-index: 5;
+}
+
+.run-matrix-header > div {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.run-matrix-row {
+  align-items: stretch;
+}
+
+.run-row-label {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.run-row-label strong {
+  font-family: var(--font-heading), sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.run-row-label p {
+  color: var(--text-secondary);
+  display: -webkit-box;
+  font-size: 0.88rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.run-cell {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.run-cell.missing {
+  align-items: center;
+  color: var(--text-muted);
+  justify-items: center;
+  min-height: 260px;
+}
+
+.run-cell header {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.run-cell header strong {
+  display: -webkit-box;
+  font-size: 0.92rem;
+  line-height: 1.25;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.run-preview {
+  aspect-ratio: 16 / 9;
+  min-height: 180px;
+}
+
+.run-preview img,
+.run-preview video,
+.run-preview iframe {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.run-cell dl {
+  display: grid;
+  gap: 0;
+}
+
+.run-cell dl div {
+  border-top: 1px solid var(--card-border);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 70px minmax(0, 1fr);
+  padding: 6px 0;
+}
+
+.run-cell dl div:first-child {
+  border-top: 0;
+}
+
+.run-cell dd {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.run-cell .changed dd {
+  color: var(--accent);
+}
+
 .ai-reviews {
   background: var(--bg-secondary);
   border: 1px solid var(--card-border);
@@ -1763,6 +1975,19 @@ progress {
   .compare-grid {
     grid-template-columns: 1fr;
   }
+
+  .run-options {
+    grid-template-columns: 1fr;
+  }
+
+  .run-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .run-matrix-header,
+  .run-matrix-row {
+    min-width: 780px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1795,6 +2020,34 @@ progress {
   .compare-fields div,
   .ai-compare dl div {
     grid-template-columns: 1fr;
+  }
+
+  .run-setup {
+    padding: 12px;
+  }
+
+  .run-column-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .run-matrix {
+    margin-left: -14px;
+    margin-right: -14px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .run-matrix-header,
+  .run-matrix-row {
+    min-width: 720px;
+  }
+
+  .run-preview {
+    min-height: 150px;
   }
 
   .baseline-value {
