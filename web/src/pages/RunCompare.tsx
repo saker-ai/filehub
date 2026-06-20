@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { assetHubPath, listAssets, type Asset } from '../api/client'
+import { assetContentURL, listAssets, type Asset } from '../api/client'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo } from '../components/AuthMedia'
 import { formatBytes } from '../components/AssetCard'
 
@@ -218,7 +218,7 @@ function RunAssetCell({ asset, baseline }: { asset?: Asset; baseline?: Asset }) 
 function RunPreview({ asset }: { asset: Asset }) {
   const { t } = useTranslation()
   const type = asset.content_type || ''
-  const content = assetHubPath(`/v1/assets/${asset.id}/content`)
+  const content = assetContentURL(asset.id)
   if (type.startsWith('video/')) return <AuthVideo src={content} />
   if (type.startsWith('image/')) return <AuthImage src={content} alt={asset.filename} />
   if (type.startsWith('audio/')) return <AuthAudio src={content} />

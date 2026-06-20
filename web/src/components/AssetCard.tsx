@@ -1,4 +1,4 @@
-import { assetHubPath, type Asset } from '../api/client'
+import { assetThumbnailURL, type Asset } from '../api/client'
 import { AuthImage } from './AuthMedia'
 
 export function AssetCard({ asset, selected, onOpen, onSelect }: { asset: Asset; selected?: boolean; onOpen: () => void; onSelect?: (checked: boolean) => void }) {
@@ -45,7 +45,7 @@ export function AssetListItem({ asset, selected, onOpen, onSelect }: { asset: As
 function Preview({ asset }: { asset: Asset }) {
   const type = asset.content_type || ''
   if (type.startsWith('image/') || type.startsWith('video/')) {
-    return <AuthImage src={assetHubPath(`/v1/assets/${asset.id}/thumbnail?width=320&height=180&format=jpg`)} alt="" className="thumb-image" fallback={asset.content_type?.startsWith('video/') ? 'Video' : 'Image'} lazy />
+    return <AuthImage src={assetThumbnailURL(asset.id, { width: 320, height: 180, format: 'jpg' })} alt="" className="thumb-image" fallback={asset.content_type?.startsWith('video/') ? 'Video' : 'Image'} lazy />
   }
   if (type.startsWith('audio/')) {
     return <div className="wave-icon" aria-label="Audio">{[16, 34, 22, 44, 28, 38].map((height, index) => <span key={index} style={{ height }} />)}</div>

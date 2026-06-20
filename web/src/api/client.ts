@@ -125,6 +125,22 @@ export function assetHubPath(path: string): string {
   return assetHubURL(path)
 }
 
+export function assetContentURL(assetID: string, opts: { download?: boolean } = {}): string {
+  const search = new URLSearchParams()
+  if (opts.download) search.set('download', 'true')
+  const query = search.toString()
+  return assetHubURL(`/v1/assets/${encodeURIComponent(assetID)}/content${query ? `?${query}` : ''}`)
+}
+
+export function assetThumbnailURL(assetID: string, opts: { width?: number; height?: number; format?: string } = {}): string {
+  const search = new URLSearchParams()
+  if (opts.width) search.set('width', String(opts.width))
+  if (opts.height) search.set('height', String(opts.height))
+  if (opts.format) search.set('format', opts.format)
+  const query = search.toString()
+  return assetHubURL(`/v1/assets/${encodeURIComponent(assetID)}/thumbnail${query ? `?${query}` : ''}`)
+}
+
 export function getAPIKey(): string {
   return localStorage.getItem('assethub_api_key') || 'dev-assethub-key'
 }
@@ -169,6 +185,25 @@ export async function fetchAssetBlob(path: string): Promise<Blob> {
     throw new Error(message)
   }
   return response.blob()
+}
+
+export async function fetchAssetContentBlob(assetID: string, opts: { download?: boolean } = {}): Promise<Blob> {
+  return fetchAssetBlob(assetContentURL(assetID, opts))
+}
+
+export async function fetchAssetText(assetID: string): Promise<string> {
+  const response = await fetch(assetContentURL(assetID), { headers: authHeaders() })
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`
+    try {
+      const body = await response.json()
+      message = body?.error?.message || message
+    } catch {
+      message = await response.text()
+    }
+    throw new Error(message)
+  }
+  return response.text()
 }
 
 export async function listAssets(params: AssetFilter = {}): Promise<AssetList> {

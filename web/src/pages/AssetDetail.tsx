@@ -1,6 +1,6 @@
 import { createElement, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { assetHubPath, authHeaders, deleteAsset, fetchAssetBlob, getAsset, presignAsset, updateAsset, type Asset } from '../api/client'
+import { assetContentURL, deleteAsset, fetchAssetContentBlob, fetchAssetText, getAsset, presignAsset, updateAsset, type Asset } from '../api/client'
 import { CodeBlock } from '../components/CodeBlock'
 import { formatBytes } from '../components/AssetCard'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo, useAuthObjectURL } from '../components/AuthMedia'
@@ -62,7 +62,7 @@ export function AssetDetail({ assetID, positionLabel, canNavigatePrev = true, ca
   async function download() {
     setDownloadError('')
     try {
-      const blob = await fetchAssetBlob(assetHubPath(`/v1/assets/${assetID}/content?download=true`))
+      const blob = await fetchAssetContentBlob(assetID, { download: true })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -146,13 +146,13 @@ export function AssetDetail({ assetID, positionLabel, canNavigatePrev = true, ca
 function Preview({ asset }: { asset: Asset }) {
   const { t } = useTranslation()
   const type = asset.content_type || ''
-  const src = assetHubPath(`/v1/assets/${asset.id}/content`)
+  const src = assetContentURL(asset.id)
   if (type.startsWith('image/')) return <AuthImage src={src} alt={asset.filename} />
   if (type.startsWith('video/')) return <AuthVideo src={src} />
   if (type.startsWith('audio/')) return <AudioPreview src={src} />
   if (type === 'application/pdf') return <AuthFrame src={src} title={asset.filename} />
   if (type.startsWith('model/') || /\.(glb|gltf)$/i.test(asset.filename)) return <ModelPreview src={src} />
-  if (type.startsWith('text/') || type.includes('json') || type.includes('xml') || /\.md$/i.test(asset.filename)) return <TextPreview src={src} filename={asset.filename} />
+  if (type.startsWith('text/') || type.includes('json') || type.includes('xml') || /\.md$/i.test(asset.filename)) return <TextPreview assetID={asset.id} filename={asset.filename} />
   return <div className="file-preview">{t('file')}</div>
 }
 
@@ -210,12 +210,12 @@ function ModelPreview({ src }: { src: string }) {
   return createElement('model-viewer', { src: url, 'camera-controls': true, ar: true, 'auto-rotate': true })
 }
 
-function TextPreview({ src, filename }: { src: string; filename: string }) {
+function TextPreview({ assetID, filename }: { assetID: string; filename: string }) {
   const [text, setText] = useState('')
   const [highlighted, setHighlighted] = useState('')
   useEffect(() => {
-    void fetch(src, { headers: authHeaders() }).then((response) => response.text()).then(setText)
-  }, [src])
+    void fetchAssetText(assetID).then(setText)
+  }, [assetID])
   const [html, setHTML] = useState('')
 
   useEffect(() => {

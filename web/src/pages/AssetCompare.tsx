@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { assetHubPath, authHeaders, createAssetReview, getAsset, getAssetReview, updateAssetReview, updateAssetReviewItem, type Asset, type AssetReview } from '../api/client'
+import { assetContentURL, createAssetReview, fetchAssetText, getAsset, getAssetReview, updateAssetReview, updateAssetReviewItem, type Asset, type AssetReview } from '../api/client'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo } from '../components/AuthMedia'
 import { formatBytes } from '../components/AssetCard'
 import { AIReviewResults } from '../components/AIReviews'
@@ -274,26 +274,23 @@ function AssetComparePanel({ asset, baseline, label, decision, note, onDecision,
 function ComparePreview({ asset }: { asset: Asset }) {
   const { t } = useTranslation()
   const type = asset.content_type || ''
-  const src = assetHubPath(`/v1/assets/${asset.id}/content`)
+  const src = assetContentURL(asset.id)
   if (type.startsWith('image/')) return <AuthImage src={src} alt={asset.filename} />
   if (type.startsWith('video/')) return <AuthVideo src={src} />
   if (type.startsWith('audio/')) return <AuthAudio src={src} />
   if (type === 'application/pdf') return <AuthFrame src={src} title={asset.filename} />
-  if (type.startsWith('text/') || type.includes('json') || type.includes('xml') || /\.md$/i.test(asset.filename)) return <CompactTextPreview src={src} />
+  if (type.startsWith('text/') || type.includes('json') || type.includes('xml') || /\.md$/i.test(asset.filename)) return <CompactTextPreview assetID={asset.id} />
   return <div className="file-preview">{t('file')}</div>
 }
 
-function CompactTextPreview({ src }: { src: string }) {
+function CompactTextPreview({ assetID }: { assetID: string }) {
   const [text, setText] = useState('')
   const [error, setError] = useState('')
   useEffect(() => {
     let alive = true
     setText('')
     setError('')
-    void fetch(src, { headers: authHeaders() }).then((response) => {
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-      return response.text()
-    }).then((value) => {
+    void fetchAssetText(assetID).then((value) => {
       if (alive) setText(value)
     }).catch((err) => {
       if (alive) setError(err instanceof Error ? err.message : String(err))
@@ -301,7 +298,7 @@ function CompactTextPreview({ src }: { src: string }) {
     return () => {
       alive = false
     }
-  }, [src])
+  }, [assetID])
   if (error) return <span className="preview-error">{error}</span>
   if (!text) return <span className="preview-loading">Loading</span>
   return <pre className="code text-preview compact-text-preview">{text}</pre>
