@@ -14,10 +14,16 @@
     "module": "ESNext",
     "types": ["vite/client"],
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "react": ["node_modules/@types/react"],
+      "react/jsx-runtime": ["node_modules/@types/react/jsx-runtime"],
+      "lucide-react": ["node_modules/lucide-react/dist/lucide-react.d.ts"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx"
   },
-  "include": ["src"]
+  "include": ["src", "../../web-shared/src"]
 }

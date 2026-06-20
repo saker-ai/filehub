@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-BWRPWl8p.js";var t=e();function n({value:e}){return(0,t.jsx)(`pre`,{className:`code`,children:JSON.stringify(e,null,2)})}export{n as t};

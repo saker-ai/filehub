@@ -10,6 +10,7 @@ const Reviews = lazy(() => import('./pages/Reviews'))
 const RunCompare = lazy(() => import('./pages/RunCompare'))
 const Upload = lazy(() => import('./pages/Upload'))
 const Login = lazy(() => import('./pages/Login'))
+const SharedAssets = lazy(() => import('./pages/SharedAssets'))
 
 export default function App() {
   const { t } = useTranslation()
@@ -19,6 +20,7 @@ export default function App() {
         <>
           <NavLink to="/" end>{t('dashboard')}</NavLink>
           <NavLink to="/assets">{t('assets')}</NavLink>
+          <NavLink to="/shared-assets">Shared assets</NavLink>
           <NavLink to="/run-compare">{t('runCompare')}</NavLink>
           <NavLink to="/reviews">{t('reviews')}</NavLink>
           <NavLink to="/upload">{t('upload')}</NavLink>
@@ -30,6 +32,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/assets" element={<Assets />} />
+          <Route path="/shared-assets" element={<SharedAssets />} />
           <Route path="/compare" element={<AssetCompare />} />
           <Route path="/run-compare" element={<RunCompare />} />
           <Route path="/reviews" element={<Reviews />} />
