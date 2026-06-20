@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/saker-ai/assethub/pkg/config"
-	"github.com/saker-ai/internaljwt"
+	"github.com/saker-ai/saker-common/internaljwt"
 	"golang.org/x/time/rate"
 )
 

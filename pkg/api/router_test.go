@@ -34,7 +34,7 @@ import (
 	"github.com/saker-ai/assethub/pkg/storage"
 	"github.com/saker-ai/assethub/pkg/store/gormstore"
 	"github.com/saker-ai/assethub/web"
-	"github.com/saker-ai/internaljwt"
+	"github.com/saker-ai/saker-common/internaljwt"
 )
 
 func TestRouterAssetLifecycle(t *testing.T) {

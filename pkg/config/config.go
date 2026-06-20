@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/saker-ai/internaljwt"
+	"github.com/saker-ai/saker-common/internaljwt"
 	"gopkg.in/yaml.v3"
 )
 
