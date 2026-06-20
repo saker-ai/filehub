@@ -1046,9 +1046,46 @@ func (h handler) presign(c *gin.Context) {
 	expires := time.Now().Add(ttl)
 	url, err := h.deps.Storage.PresignObjectURL(c.Request.Context(), a.StorageKey, ttl)
 	if err != nil {
-		url = h.deps.Storage.LocalPresignURL(a.ID, expires)
+		url = h.deps.Storage.LocalPresignURL(Tenant(c), a.ID, expires)
+		url = forwardedPresignURL(c, url)
 	}
 	c.JSON(http.StatusOK, gin.H{"url": url, "expires_at": expires.Unix()})
+}
+
+func forwardedPresignURL(c *gin.Context, raw string) string {
+	forwardedHost := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
+	if forwardedHost == "" {
+		return raw
+	}
+	forwardedProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+	if forwardedProto == "" {
+		forwardedProto = "http"
+	}
+	forwardedPrefix := strings.TrimRight(strings.TrimSpace(c.GetHeader("X-Saker-Forwarded-Prefix")), "/")
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	out := url.URL{
+		Scheme:   forwardedProto,
+		Host:     forwardedHost,
+		Path:     singleJoiningSlash(forwardedPrefix, parsed.EscapedPath()),
+		RawQuery: parsed.RawQuery,
+	}
+	return out.String()
+}
+
+func singleJoiningSlash(a, b string) string {
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	default:
+		return a + b
+	}
 }
 
 func (h handler) signedDownload(c *gin.Context) {
@@ -1058,11 +1095,18 @@ func (h handler) signedDownload(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
-	if !h.deps.Storage.Verify(id, expires, c.Query("sig")) {
+	tenantID := strings.TrimSpace(c.Query("tenant_id"))
+	if tenantID == "" {
+		tenantID = "default"
+		if !h.deps.Storage.Verify(id, expires, c.Query("sig")) {
+			writeError(c, http.StatusUnauthorized, "invalid_signature", "signed URL expired or invalid")
+			return
+		}
+	} else if !h.deps.Storage.VerifyTenant(tenantID, id, expires, c.Query("sig")) {
 		writeError(c, http.StatusUnauthorized, "invalid_signature", "signed URL expired or invalid")
 		return
 	}
-	a, err := h.deps.Assets.Get(c.Request.Context(), "default", id)
+	a, err := h.deps.Assets.Get(c.Request.Context(), tenantID, id)
 	if err != nil {
 		writeErr(c, err)
 		return

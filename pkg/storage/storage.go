@@ -505,10 +505,13 @@ func (s *Store) AbortMultipartUpload(ctx context.Context, key, uploadID string) 
 	return nil
 }
 
-func (s *Store) LocalPresignURL(assetID string, expires time.Time) string {
+func (s *Store) LocalPresignURL(tenantID, assetID string, expires time.Time) string {
 	expiresUnix := expires.Unix()
-	sig := s.Sign(assetID, expiresUnix)
-	u := fmt.Sprintf("%s/v1/dl/%s?expires=%d&sig=%s", strings.TrimRight(s.baseURL, "/"), url.PathEscape(assetID), expiresUnix, sig)
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	sig := s.SignTenant(tenantID, assetID, expiresUnix)
+	u := fmt.Sprintf("%s/v1/dl/%s?tenant_id=%s&expires=%d&sig=%s", strings.TrimRight(s.baseURL, "/"), url.PathEscape(assetID), url.QueryEscape(tenantID), expiresUnix, sig)
 	return u
 }
 
@@ -518,8 +521,32 @@ func (s *Store) Sign(assetID string, expiresUnix int64) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+func (s *Store) SignTenant(tenantID, assetID string, expiresUnix int64) string {
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	mac := hmac.New(sha256.New, []byte(s.presignSecret))
+	_, _ = fmt.Fprintf(mac, "%s|%s|%d", tenantID, assetID, expiresUnix)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func (s *Store) Verify(assetID string, expiresUnix int64, sig string) bool {
 	want, err := hex.DecodeString(s.Sign(assetID, expiresUnix))
+	if err != nil {
+		return false
+	}
+	got, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(got, want)
+}
+
+func (s *Store) VerifyTenant(tenantID, assetID string, expiresUnix int64, sig string) bool {
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	want, err := hex.DecodeString(s.SignTenant(tenantID, assetID, expiresUnix))
 	if err != nil {
 		return false
 	}
