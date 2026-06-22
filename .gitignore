@@ -32,6 +32,8 @@ go.work.sum
 # Runtime and local automation artifacts
 .synapse/
 .playwright-mcp/
+.omc/
+**/.omc/
 /assethub
 
 # Editor/IDE

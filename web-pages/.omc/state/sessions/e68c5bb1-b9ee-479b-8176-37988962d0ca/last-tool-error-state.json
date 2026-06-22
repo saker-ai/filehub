@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cat /home/vipas/workspace/saker-ai/mysaker/saker-stack/assethub/web-client/package.json | grep -A3 \\\"devDependencies\\\\|peerDependencies\\\"; echo \\\"---\\\"; ls /home/vipas/workspace/saker-ai/m...",
-  "error": "Exit code 2\n  \"peerDependencies\": {\n    \"react\": \"^19.0.0\",\n    \"react-dom\": \"^19.0.0\"\n  }\n---",
-  "timestamp": "2026-06-21T07:35:15.693Z",
-  "retry_count": 1
-}
