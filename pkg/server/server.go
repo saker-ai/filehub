@@ -11,6 +11,7 @@ import (
 
 	"github.com/saker-ai/assethub/pkg/api"
 	"github.com/saker-ai/assethub/pkg/config"
+	assethubnotify "github.com/saker-ai/assethub/pkg/notify"
 	"github.com/saker-ai/assethub/pkg/processing"
 	"github.com/saker-ai/assethub/pkg/storage"
 	"github.com/saker-ai/assethub/pkg/store"
@@ -46,8 +47,14 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 	metrics := api.NewMetrics()
 	pipeline := processing.New(cfg.ProcessingConcurrency, blobs, db, logger)
 	pipeline.ObserveProcessing(metrics.ObserveProcessing)
+	reviewCreatedHook, err := assethubnotify.NewReviewCreatedHook(cfg.WebHubNotify, logger)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("build review-created hook: %w", err)
+	}
 	router := api.NewRouter(api.RouterDeps{
 		Config: cfg, Assets: db, Uploads: db, AIReviews: db, Reviews: db, Storage: blobs, Pipeline: pipeline, Metrics: metrics,
+		ReviewCreatedHook: reviewCreatedHook,
 	})
 	return &Server{
 		cfg:      cfg,

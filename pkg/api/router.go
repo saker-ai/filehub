@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/saker-ai/assethub/pkg/config"
+	assethubnotify "github.com/saker-ai/assethub/pkg/notify"
 	"github.com/saker-ai/assethub/pkg/processing"
 	blob "github.com/saker-ai/assethub/pkg/storage"
 	"github.com/saker-ai/assethub/pkg/store"
@@ -39,6 +40,9 @@ type RouterDeps struct {
 	Storage   *blob.Store
 	Pipeline  *processing.Pipeline
 	Metrics   *Metrics
+	// ReviewCreatedHook is invoked after a human review task is created.
+	// Optional; when nil, no notification is emitted.
+	ReviewCreatedHook assethubnotify.ReviewCreatedFunc
 }
 
 func NewRouter(deps RouterDeps) *gin.Engine {
@@ -131,10 +135,11 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 }
 
 type handler struct {
-	deps        RouterDeps
-	uploadSlots chan struct{}
-	quota       *quotaTracker
-	statsCache  *statsCache
+	deps              RouterDeps
+	uploadSlots       chan struct{}
+	quota             *quotaTracker
+	statsCache        *statsCache
+	reviewCreatedHook assethubnotify.ReviewCreatedFunc
 }
 
 type quotaTracker struct {
@@ -167,11 +172,16 @@ func newHandler(deps RouterDeps) handler {
 	if limit <= 0 {
 		limit = 1
 	}
+	hook := deps.ReviewCreatedHook
+	if hook == nil {
+		hook = func(assethubnotify.ReviewCreatedEvent) {}
+	}
 	return handler{
-		deps:        deps,
-		uploadSlots: make(chan struct{}, limit),
-		quota:       &quotaTracker{reserved: map[string]int64{}},
-		statsCache:  &statsCache{ttl: 30 * time.Second, expires: map[string]time.Time{}, values: map[string]*store.AssetStats{}},
+		deps:              deps,
+		uploadSlots:       make(chan struct{}, limit),
+		quota:             &quotaTracker{reserved: map[string]int64{}},
+		statsCache:        &statsCache{ttl: 30 * time.Second, expires: map[string]time.Time{}, values: map[string]*store.AssetStats{}},
+		reviewCreatedHook: hook,
 	}
 }
 
@@ -760,6 +770,16 @@ func (h handler) createReview(c *gin.Context) {
 	if err := h.deps.Reviews.CreateAssetReview(c.Request.Context(), review); err != nil {
 		writeErr(c, err)
 		return
+	}
+	if h.reviewCreatedHook != nil {
+		h.reviewCreatedHook(assethubnotify.ReviewCreatedEvent{
+			ReviewID:    review.ID,
+			TenantID:    review.TenantID,
+			Title:       review.Title,
+			Reviewer:    review.Reviewer,
+			ReferenceID: review.ReferenceID,
+			AssetIDs:    assetIDs,
+		})
 	}
 	c.JSON(http.StatusOK, assetReviewResponse(review))
 }

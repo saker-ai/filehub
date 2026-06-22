@@ -1,4 +1,4 @@
-import { appBasePath, appURL } from '../../../web-shared/src/base-path'
+import { appBasePath, appURL } from '@saker/web-shared/base-path'
 
 export function assetHubBasePath(): string {
   return appBasePath(import.meta.env.BASE_URL)

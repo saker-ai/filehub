@@ -1,0 +1,130 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782008179481,
+  "projectRoot": "/home/vipas/workspace/saker-ai/mysaker/saker-stack/assethub",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Go",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "go.mod"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "go",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "go test ./... 2>&1 | tail -40",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "cmd": {
+      "path": "cmd",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782008179477,
+      "keyFiles": []
+    },
+    "pkg": {
+      "path": "pkg",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782008179478,
+      "keyFiles": []
+    },
+    "web": {
+      "path": "web",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1782008179478,
+      "keyFiles": [
+        "embed.go",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.app.json"
+      ]
+    },
+    "pkg/api": {
+      "path": "pkg/api",
+      "purpose": "API routes",
+      "fileCount": 7,
+      "lastAccessed": 1782008179479,
+      "keyFiles": [
+        "errors.go",
+        "huma.go",
+        "huma_docs.go"
+      ]
+    },
+    "pkg/config": {
+      "path": "pkg/config",
+      "purpose": "Configuration files",
+      "fileCount": 2,
+      "lastAccessed": 1782008179479,
+      "keyFiles": [
+        "config.go",
+        "config_test.go"
+      ]
+    },
+    "web/node_modules": {
+      "path": "web/node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 1,
+      "lastAccessed": 1782008179479,
+      "keyFiles": []
+    },
+    "web/src": {
+      "path": "web/src",
+      "purpose": "Source code",
+      "fileCount": 4,
+      "lastAccessed": 1782008179479,
+      "keyFiles": [
+        "App.tsx",
+        "basePath.ts",
+        "custom-elements.d.ts"
+      ]
+    },
+    "web/static": {
+      "path": "web/static",
+      "purpose": "Static files",
+      "fileCount": 1,
+      "lastAccessed": 1782008179479,
+      "keyFiles": [
+        "index.html"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

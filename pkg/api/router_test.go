@@ -30,6 +30,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/saker-ai/assethub/pkg/config"
+	assethubnotify "github.com/saker-ai/assethub/pkg/notify"
 	"github.com/saker-ai/assethub/pkg/processing"
 	"github.com/saker-ai/assethub/pkg/storage"
 	"github.com/saker-ai/assethub/pkg/store/gormstore"
@@ -1260,4 +1261,82 @@ func (f *fakeS3Server) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "not implemented", http.StatusNotImplemented)
 	}
+}
+
+func TestRouterCreateReviewInvokesHook(t *testing.T) {
+	ts := newTestServer(t)
+
+	first := ts.uploadAsset(t, "/v1/assets?on_duplicate=allow", "hook-review.txt", []byte("payload"), map[string]string{"purpose": "media"})
+	firstID := first["id"].(string)
+
+	var gotEvent assethubnotify.ReviewCreatedEvent
+	done := make(chan struct{})
+	hook := func(event assethubnotify.ReviewCreatedEvent) {
+		gotEvent = event
+		close(done)
+	}
+
+	cfg := config.Defaults()
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	cfg.DSN = "sqlite://" + filepath.Join(t.TempDir(), "assethub-hook.db")
+	cfg.Storage.Backend = config.BackendMemFS
+	cfg.PresignSecret = "test-secret"
+	cfg.RatePerSec = 10000
+	cfg.RateBurst = 10000
+	ctx := context.Background()
+	db, err := gormstore.Open(ctx, cfg.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	blobs, err := storage.New(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline := processing.New(4, blobs, db, nil)
+	router := NewRouter(RouterDeps{Config: cfg, Assets: db, Uploads: db, AIReviews: db, Reviews: db, Storage: blobs, Pipeline: pipeline, ReviewCreatedHook: hook})
+	server := &testServer{router: router, db: db}
+
+	upload := server.uploadAsset(t, "/v1/assets?on_duplicate=allow", "hook-asset.txt", []byte("data"), map[string]string{"purpose": "media"})
+	uploadID := upload["id"].(string)
+
+	create := server.request(t, http.MethodPost, "/v1/reviews", bytes.NewBufferString(`{
+		"title":"Hook review",
+		"reviewer":"bob",
+		"reference_asset_id":"`+uploadID+`",
+		"asset_ids":["`+uploadID+`"],
+		"trace_id":"trace-hook"
+	}`), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusOK {
+		t.Fatalf("create review status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	reviewID := created["id"].(string)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ReviewCreatedHook not called")
+	}
+	if gotEvent.ReviewID != reviewID {
+		t.Fatalf("ReviewID=%q want %q", gotEvent.ReviewID, reviewID)
+	}
+	if gotEvent.Title != "Hook review" {
+		t.Fatalf("Title=%q want Hook review", gotEvent.Title)
+	}
+	if gotEvent.Reviewer != "bob" {
+		t.Fatalf("Reviewer=%q want bob", gotEvent.Reviewer)
+	}
+	if gotEvent.ReferenceID != uploadID {
+		t.Fatalf("ReferenceID=%q want %q", gotEvent.ReferenceID, uploadID)
+	}
+	if len(gotEvent.AssetIDs) != 1 || gotEvent.AssetIDs[0] != uploadID {
+		t.Fatalf("AssetIDs=%v want [%s]", gotEvent.AssetIDs, uploadID)
+	}
+	_ = firstID
+	_ = ts
 }

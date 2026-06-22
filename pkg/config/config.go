@@ -43,6 +43,16 @@ type Config struct {
 	MetricsEnabled        bool               `json:"metrics_enabled" yaml:"metrics_enabled"`
 	MetricsPath           string             `json:"metrics_path" yaml:"metrics_path"`
 	WebEnabled            bool               `json:"web_enabled" yaml:"web_enabled"`
+	WebHubNotify          WebHubNotifyConfig `json:"webhub_notify" yaml:"webhub_notify"`
+}
+
+type WebHubNotifyConfig struct {
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
+	WebHubURL string `json:"webhub_url" yaml:"webhub_url"`
+	WardenURL string `json:"warden_url" yaml:"warden_url"`
+	APIKey    string `json:"api_key" yaml:"api_key"`
+	Audience  string `json:"audience" yaml:"audience"`
+	Scope     string `json:"scope" yaml:"scope"`
 }
 
 type InternalAuthConfig struct {
@@ -258,6 +268,12 @@ func applyEnv(c *Config) {
 	setBool("ASSETHUB_METRICS_ENABLED", &c.MetricsEnabled)
 	setString("ASSETHUB_METRICS_PATH", &c.MetricsPath)
 	setBool("ASSETHUB_WEB_ENABLED", &c.WebEnabled)
+	setBool("ASSETHUB_WEBHUB_NOTIFY_ENABLED", &c.WebHubNotify.Enabled)
+	setString("ASSETHUB_WEBHUB_NOTIFY_URL", &c.WebHubNotify.WebHubURL)
+	setString("ASSETHUB_WEBHUB_NOTIFY_WARDEN_URL", &c.WebHubNotify.WardenURL)
+	setString("ASSETHUB_WEBHUB_NOTIFY_API_KEY", &c.WebHubNotify.APIKey)
+	setString("ASSETHUB_WEBHUB_NOTIFY_AUDIENCE", &c.WebHubNotify.Audience)
+	setString("ASSETHUB_WEBHUB_NOTIFY_SCOPE", &c.WebHubNotify.Scope)
 }
 
 func csvEnv(key string) []string {

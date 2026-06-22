@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd assethub && git log --oneline -10\",\"description\":\"Show assethub recent commit history\"}",
+  "error": "Exit code 1\n/bin/bash: 第 1 行： cd: assethub: 不是目录",
+  "timestamp": "2026-06-21T00:48:11.691Z",
+  "retry_count": 1
+}

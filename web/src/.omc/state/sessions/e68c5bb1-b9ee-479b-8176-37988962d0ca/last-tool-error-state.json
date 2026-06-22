@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__plugin_oh-my-claudecode_t__lsp_diagnostics",
+  "tool_input_preview": "{\"file\":\"/home/vipas/workspace/saker-ai/mysaker/saker-stack/skillhub/web-pages/src/pages/Publish.tsx\"}",
+  "error": "Language server 'typescript-language-server' not found.\nInstall with: npm install -g typescript-language-server typescript",
+  "timestamp": "2026-06-21T07:51:34.964Z",
+  "retry_count": 1
+}

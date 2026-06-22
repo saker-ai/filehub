@@ -3,7 +3,7 @@ import { initReactI18next } from 'react-i18next'
 
 export const languages = ['en', 'zh'] as const
 
-const resources = {
+export const resources = {
   en: {
     translation: {
       dashboard: 'Dashboard',
