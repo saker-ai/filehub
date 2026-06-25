@@ -91,6 +91,12 @@ func logSecurityWarnings(logger *slog.Logger, cfg config.Config) {
 }
 
 func (s *Server) Start(ctx context.Context) error {
+	registration := startServiceDiscovery(ctx, s.logger, s.cfg)
+	defer func() {
+		if registration != nil {
+			_ = registration.Stop(context.Background())
+		}
+	}()
 	errCh := make(chan error, 1)
 	go func() {
 		s.logger.Info("assethub starting", "addr", s.cfg.Addr, "dsn", s.cfg.DSN, "backend", s.cfg.Storage.Backend)
