@@ -1,4 +1,4 @@
-.PHONY: build build-go deps dev run setup clean help quickstart test ensure-static test-static lint frontend dev-frontend dev-backend fmt runtime-dirs free-run-port
+.PHONY: build build-go deps dev run setup clean help quickstart test ensure-static test-static lint frontend check-static dev-frontend dev-backend fmt runtime-dirs free-run-port
 
 -include .env
 export
@@ -16,6 +16,9 @@ VITE_BASE_PATH ?= ./
 # Build frontend (React + Vite)
 frontend:
 	cd web && pnpm install --prefer-offline && VITE_BASE_PATH="$(VITE_BASE_PATH)" npm run build
+
+check-static: frontend
+	@git diff --exit-code -- web/static || (echo "AssetHub static assets are stale. Run 'make -C assethub frontend' and commit web/static changes." && exit 1)
 
 # Build the assethub binary (includes embedded frontend)
 build: frontend
