@@ -1,1 +1,1 @@
-export { default } from '@saker/assethub-pages/login'
+export { default } from '@saker/filehub-pages/login'

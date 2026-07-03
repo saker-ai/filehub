@@ -1,6 +1,6 @@
 import { createElement, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { assetContentURL, deleteAsset, fetchAssetContentBlob, fetchAssetText, getAsset, presignAsset, updateAsset, type Asset } from '@saker/assethub-client'
+import { assetContentURL, deleteAsset, fetchAssetContentBlob, fetchAssetText, getAsset, presignAsset, updateAsset, type Asset } from '@saker/filehub-client'
 import { CodeBlock } from '../components/CodeBlock'
 import { formatBytes } from '../components/AssetCard'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo, useAuthObjectURL } from '../components/AuthMedia'

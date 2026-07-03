@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getAPIKey, setAPIKey } from '@saker/assethub-client'
+import { getAPIKey, setAPIKey } from '@saker/filehub-client'
 
 export default function Login() {
   const { t } = useTranslation()

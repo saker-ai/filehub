@@ -3,7 +3,7 @@ package gormstore
 import (
 	"time"
 
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store"
 )
 
 type AssetModel struct {

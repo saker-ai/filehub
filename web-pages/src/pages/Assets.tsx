@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Asset, bulkDelete, listAssets, updateAsset } from '@saker/assethub-client'
+import { Asset, bulkDelete, listAssets, updateAsset } from '@saker/filehub-client'
 import { appBasePath, appURL } from '@saker/web-shared/base-path'
 import { AssetCard, AssetListItem, formatBytes } from '../components/AssetCard'
 

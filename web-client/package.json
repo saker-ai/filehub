@@ -1,8 +1,8 @@
 {
-  "name": "@saker/assethub-client",
+  "name": "@saker/filehub-client",
   "private": true,
   "version": "0.1.0",
-  "description": "AssetHub TypeScript client (API + types) shared across host shells",
+  "description": "FileHub TypeScript client (API + types) shared across host shells",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",

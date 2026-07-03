@@ -6,7 +6,7 @@ export function LangSwitch() {
 
   async function toggle() {
     await i18n.changeLanguage(next)
-    localStorage.setItem('assethub_lang', next)
+    localStorage.setItem('filehub_lang', next)
   }
 
   return (

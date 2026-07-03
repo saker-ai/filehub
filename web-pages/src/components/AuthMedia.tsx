@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchAssetBlob } from '@saker/assethub-client'
+import { fetchAssetBlob } from '@saker/filehub-client'
 
 type BlobState = {
   url: string

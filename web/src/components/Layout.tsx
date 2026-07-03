@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react'
-import { assetHubBasePath, assetHubURL } from '../basePath'
+import { fileHubBasePath, fileHubURL } from '../basePath'
 import { ThemeToggle } from './ThemeToggle'
 import { LangSwitch } from './LangSwitch'
 
-const basePath = assetHubBasePath()
+const basePath = fileHubBasePath()
 const homePath = basePath || '/'
-const docsPath = assetHubURL('/docs')
+const docsPath = fileHubURL('/docs')
 
 function isEmbedded() {
   const params = new URLSearchParams(window.location.search)
@@ -31,7 +31,7 @@ export function Layout({ nav, children }: { nav: ReactNode; children: ReactNode 
                 <path d="M9 17.5h6v3H9z" />
               </svg>
             </span>
-            <span>AssetHub</span>
+            <span>FileHub</span>
           </a>
           <nav className="nav primary-nav">
             {nav}
@@ -57,7 +57,7 @@ export function Layout({ nav, children }: { nav: ReactNode; children: ReactNode 
       </header>
       <main className="content">{children}</main>
       <footer className="footer">
-        <div className="container">AssetHub · AI asset registry and OpenAI-compatible file store</div>
+        <div className="container">FileHub · AI asset registry and OpenAI-compatible file store</div>
       </footer>
     </>
   )

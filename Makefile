@@ -3,14 +3,14 @@
 -include .env
 export
 
-ASSETHUB_ADDR ?= :17040
-ASSETHUB_API_KEY_AUTH_ENABLED ?= true
-ASSETHUB_API_KEYS ?= dev-assethub-key
-ASSETHUB_PRESIGN_SECRET ?= assethub-presign-secret
-ASSETHUB_DSN ?= sqlite://.synapse/stack/assethub.db
-ASSETHUB_STORAGE_BACKEND ?= osfs
-ASSETHUB_STORAGE_DIR ?= .synapse/stack/assethub-data
-ASSETHUB_PID_FILE ?= .synapse/stack/assethub.pid
+FILEHUB_ADDR ?= :17040
+FILEHUB_API_KEY_AUTH_ENABLED ?= true
+FILEHUB_API_KEYS ?= dev-filehub-key
+FILEHUB_PRESIGN_SECRET ?= filehub-presign-secret
+FILEHUB_DSN ?= sqlite://.synapse/stack/filehub.db
+FILEHUB_STORAGE_BACKEND ?= osfs
+FILEHUB_STORAGE_DIR ?= .synapse/stack/filehub-data
+FILEHUB_PID_FILE ?= .synapse/stack/filehub.pid
 VITE_BASE_PATH ?= ./
 
 # Build frontend (React + Vite)
@@ -18,18 +18,18 @@ frontend:
 	cd web && pnpm install --prefer-offline && VITE_BASE_PATH="$(VITE_BASE_PATH)" npm run build
 
 check-static: frontend
-	@git diff --exit-code -- web/static || (echo "AssetHub static assets are stale. Run 'make -C assethub frontend' and commit web/static changes." && exit 1)
+	@git diff --exit-code -- web/static || (echo "FileHub static assets are stale. Run 'make -C filehub frontend' and commit web/static changes." && exit 1)
 
-# Build the assethub binary (includes embedded frontend)
+# Build the filehub binary (includes embedded frontend)
 build: frontend
-	go build -o assethub ./cmd/assethub/
+	go build -o filehub ./cmd/filehub/
 
 # Ensure the embed target exists for Go-only commands in a clean checkout.
 ensure-static: test-static
 
 # Build Go only (skip frontend)
 build-go: ensure-static
-	go build -o assethub ./cmd/assethub/
+	go build -o filehub ./cmd/filehub/
 
 # Download Go dependencies
 deps:
@@ -37,27 +37,27 @@ deps:
 
 # Create local runtime directories used by the default SQLite + osfs setup.
 runtime-dirs:
-	@mkdir -p "$$(dirname "$$(printf '%s' '$(ASSETHUB_DSN)' | sed 's#^sqlite://##; s#[?].*##')")" "$(ASSETHUB_STORAGE_DIR)"
+	@mkdir -p "$$(dirname "$$(printf '%s' '$(FILEHUB_DSN)' | sed 's#^sqlite://##; s#[?].*##')")" "$(FILEHUB_STORAGE_DIR)"
 
 free-run-port:
-	@addr="$(ASSETHUB_ADDR)"; \
+	@addr="$(FILEHUB_ADDR)"; \
 	port="$${addr##*:}"; \
 	if ! printf '%s' "$$port" | grep -Eq '^[0-9]+$$'; then \
-		echo "Cannot parse listen port from ASSETHUB_ADDR=$$addr"; \
+		echo "Cannot parse listen port from FILEHUB_ADDR=$$addr"; \
 		exit 1; \
 	fi; \
-	if [ -f "$(ASSETHUB_PID_FILE)" ]; then \
-		old_pid="$$(cat "$(ASSETHUB_PID_FILE)" 2>/dev/null || true)"; \
+	if [ -f "$(FILEHUB_PID_FILE)" ]; then \
+		old_pid="$$(cat "$(FILEHUB_PID_FILE)" 2>/dev/null || true)"; \
 		if [ -n "$$old_pid" ] && kill -0 "$$old_pid" 2>/dev/null; then \
 			cmd="$$(ps -p "$$old_pid" -o comm= 2>/dev/null || true)"; \
-			if printf '%s' "$$cmd" | grep -Eq '(^|/)assethub$$'; then \
-				echo "Stopping previous AssetHub process $$old_pid."; \
+			if printf '%s' "$$cmd" | grep -Eq '(^|/)filehub$$'; then \
+				echo "Stopping previous FileHub process $$old_pid."; \
 				kill "$$old_pid" 2>/dev/null || true; \
 				sleep 1; \
 				if kill -0 "$$old_pid" 2>/dev/null; then kill -9 "$$old_pid" 2>/dev/null || true; fi; \
 			fi; \
 		fi; \
-		rm -f "$(ASSETHUB_PID_FILE)"; \
+		rm -f "$(FILEHUB_PID_FILE)"; \
 	fi; \
 	pids=""; \
 	if command -v lsof >/dev/null 2>&1; then \
@@ -70,13 +70,13 @@ free-run-port:
 	if [ -n "$$pids" ]; then \
 		for pid in $$pids; do \
 			cmd="$$(ps -p "$$pid" -o comm= 2>/dev/null || true)"; \
-			if printf '%s' "$$cmd" | grep -Eq '(^|/)assethub$$'; then \
-				echo "Stopping AssetHub process $$pid on port $$port."; \
+			if printf '%s' "$$cmd" | grep -Eq '(^|/)filehub$$'; then \
+				echo "Stopping FileHub process $$pid on port $$port."; \
 				kill "$$pid" 2>/dev/null || true; \
 				sleep 1; \
 				if kill -0 "$$pid" 2>/dev/null; then kill -9 "$$pid" 2>/dev/null || true; fi; \
 			else \
-				echo "Port $$port is used by non-AssetHub process $$pid ($$cmd). Stop it manually or change ASSETHUB_ADDR."; \
+				echo "Port $$port is used by non-FileHub process $$pid ($$cmd). Stop it manually or change FILEHUB_ADDR."; \
 				exit 1; \
 			fi; \
 		done; \
@@ -86,49 +86,49 @@ free-run-port:
 
 # One-click: build + start server (SQLite + local filesystem storage)
 quickstart: build runtime-dirs
-	@echo "Starting AssetHub on $(ASSETHUB_ADDR) (SQLite + $(ASSETHUB_STORAGE_BACKEND) storage)..."
-	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
-	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
-	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
-	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
-	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
-	ASSETHUB_STORAGE_BACKEND="$(ASSETHUB_STORAGE_BACKEND)" \
-	ASSETHUB_STORAGE_DIR="$(ASSETHUB_STORAGE_DIR)" \
-	./assethub
+	@echo "Starting FileHub on $(FILEHUB_ADDR) (SQLite + $(FILEHUB_STORAGE_BACKEND) storage)..."
+	FILEHUB_ADDR="$(FILEHUB_ADDR)" \
+	FILEHUB_API_KEY_AUTH_ENABLED="$(FILEHUB_API_KEY_AUTH_ENABLED)" \
+	FILEHUB_API_KEYS="$(FILEHUB_API_KEYS)" \
+	FILEHUB_PRESIGN_SECRET="$(FILEHUB_PRESIGN_SECRET)" \
+	FILEHUB_DSN="$(FILEHUB_DSN)" \
+	FILEHUB_STORAGE_BACKEND="$(FILEHUB_STORAGE_BACKEND)" \
+	FILEHUB_STORAGE_DIR="$(FILEHUB_STORAGE_DIR)" \
+	./filehub
 
 # Full setup: download dependencies and build everything
 setup: deps build
 	@echo "Setup complete."
 	@echo "  Start server:  make dev"
-	@echo "  Listen addr:   $(ASSETHUB_ADDR)"
-	@echo "  API key:       $(ASSETHUB_API_KEYS)"
+	@echo "  Listen addr:   $(FILEHUB_ADDR)"
+	@echo "  API key:       $(FILEHUB_API_KEYS)"
 
 # Build frontend + Go binary, then start server
 run: build runtime-dirs free-run-port
-	@mkdir -p "$$(dirname "$(ASSETHUB_PID_FILE)")"; \
-	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
-	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
-	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
-	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
-	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
-	ASSETHUB_STORAGE_BACKEND="$(ASSETHUB_STORAGE_BACKEND)" \
-	ASSETHUB_STORAGE_DIR="$(ASSETHUB_STORAGE_DIR)" \
-	./assethub & \
+	@mkdir -p "$$(dirname "$(FILEHUB_PID_FILE)")"; \
+	FILEHUB_ADDR="$(FILEHUB_ADDR)" \
+	FILEHUB_API_KEY_AUTH_ENABLED="$(FILEHUB_API_KEY_AUTH_ENABLED)" \
+	FILEHUB_API_KEYS="$(FILEHUB_API_KEYS)" \
+	FILEHUB_PRESIGN_SECRET="$(FILEHUB_PRESIGN_SECRET)" \
+	FILEHUB_DSN="$(FILEHUB_DSN)" \
+	FILEHUB_STORAGE_BACKEND="$(FILEHUB_STORAGE_BACKEND)" \
+	FILEHUB_STORAGE_DIR="$(FILEHUB_STORAGE_DIR)" \
+	./filehub & \
 	pid="$$!"; \
-	echo "$$pid" > "$(ASSETHUB_PID_FILE)"; \
-	trap 'rm -f "$(ASSETHUB_PID_FILE)"' EXIT INT TERM; \
+	echo "$$pid" > "$(FILEHUB_PID_FILE)"; \
+	trap 'rm -f "$(FILEHUB_PID_FILE)"' EXIT INT TERM; \
 	wait "$$pid"
 
 # Start server in development mode
 dev: build runtime-dirs
-	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
-	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
-	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
-	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
-	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
-	ASSETHUB_STORAGE_BACKEND="$(ASSETHUB_STORAGE_BACKEND)" \
-	ASSETHUB_STORAGE_DIR="$(ASSETHUB_STORAGE_DIR)" \
-	./assethub
+	FILEHUB_ADDR="$(FILEHUB_ADDR)" \
+	FILEHUB_API_KEY_AUTH_ENABLED="$(FILEHUB_API_KEY_AUTH_ENABLED)" \
+	FILEHUB_API_KEYS="$(FILEHUB_API_KEYS)" \
+	FILEHUB_PRESIGN_SECRET="$(FILEHUB_PRESIGN_SECRET)" \
+	FILEHUB_DSN="$(FILEHUB_DSN)" \
+	FILEHUB_STORAGE_BACKEND="$(FILEHUB_STORAGE_BACKEND)" \
+	FILEHUB_STORAGE_DIR="$(FILEHUB_STORAGE_DIR)" \
+	./filehub
 
 # Start frontend dev server (hot reload, proxies API to Go backend)
 dev-frontend:
@@ -136,14 +136,14 @@ dev-frontend:
 
 # Start Go backend only (for development with frontend dev server)
 dev-backend: build-go runtime-dirs
-	ASSETHUB_ADDR="$(ASSETHUB_ADDR)" \
-	ASSETHUB_API_KEY_AUTH_ENABLED="$(ASSETHUB_API_KEY_AUTH_ENABLED)" \
-	ASSETHUB_API_KEYS="$(ASSETHUB_API_KEYS)" \
-	ASSETHUB_PRESIGN_SECRET="$(ASSETHUB_PRESIGN_SECRET)" \
-	ASSETHUB_DSN="$(ASSETHUB_DSN)" \
-	ASSETHUB_STORAGE_BACKEND="$(ASSETHUB_STORAGE_BACKEND)" \
-	ASSETHUB_STORAGE_DIR="$(ASSETHUB_STORAGE_DIR)" \
-	./assethub
+	FILEHUB_ADDR="$(FILEHUB_ADDR)" \
+	FILEHUB_API_KEY_AUTH_ENABLED="$(FILEHUB_API_KEY_AUTH_ENABLED)" \
+	FILEHUB_API_KEYS="$(FILEHUB_API_KEYS)" \
+	FILEHUB_PRESIGN_SECRET="$(FILEHUB_PRESIGN_SECRET)" \
+	FILEHUB_DSN="$(FILEHUB_DSN)" \
+	FILEHUB_STORAGE_BACKEND="$(FILEHUB_STORAGE_BACKEND)" \
+	FILEHUB_STORAGE_DIR="$(FILEHUB_STORAGE_DIR)" \
+	./filehub
 
 # Run tests
 #
@@ -157,7 +157,7 @@ test: test-static
 # web/static/ so production builds can freely replace them.
 test-static:
 	@mkdir -p web/static/assets
-	@printf '<!doctype html><title>AssetHub test shell</title><div id="root"></div>\n' > web/static/index.html
+	@printf '<!doctype html><title>FileHub test shell</title><div id="root"></div>\n' > web/static/index.html
 	@printf '' > web/static/assets/.gitkeep
 
 # Lint
@@ -177,14 +177,14 @@ fmt:
 
 # Remove local build and runtime artifacts
 clean:
-	rm -f assethub
+	rm -f filehub
 	rm -rf .synapse/
 	rm -rf web/static/
 	@echo "Cleaned."
 
 # Show help
 help:
-	@echo "AssetHub Development"
+	@echo "FileHub Development"
 	@echo ""
 	@echo "Quick start (SQLite + local filesystem storage):"
 	@echo "  make quickstart"

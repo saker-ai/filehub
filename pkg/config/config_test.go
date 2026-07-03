@@ -9,11 +9,11 @@ import (
 )
 
 func TestLoadYAMLAndEnvOverrides(t *testing.T) {
-	t.Setenv("ASSETHUB_MAX_CONCURRENT_UPLOADS", "7")
-	t.Setenv("ASSETHUB_MAX_STORAGE_BYTES", "2048")
-	t.Setenv("ASSETHUB_PRESIGN_TTL", "30m")
+	t.Setenv("FILEHUB_MAX_CONCURRENT_UPLOADS", "7")
+	t.Setenv("FILEHUB_MAX_STORAGE_BYTES", "2048")
+	t.Setenv("FILEHUB_PRESIGN_TTL", "30m")
 
-	path := filepath.Join(t.TempDir(), "assethub.yaml")
+	path := filepath.Join(t.TempDir(), "filehub.yaml")
 	if err := os.WriteFile(path, []byte(`
 addr: "127.0.0.1:18040"
 dsn: "sqlite://custom.db"
@@ -58,7 +58,7 @@ func TestDefaultsPresignTTL(t *testing.T) {
 	}
 }
 
-func TestDefaultsDisableAssetHubAPIKeyAuth(t *testing.T) {
+func TestDefaultsDisableFileHubAPIKeyAuth(t *testing.T) {
 	cfg := Defaults()
 	if cfg.APIKeyAuthEnabled {
 		t.Fatal("API key auth enabled by default")
@@ -69,7 +69,7 @@ func TestDefaultsDisableAssetHubAPIKeyAuth(t *testing.T) {
 }
 
 func TestLoadRejectsInternalAuthWithoutMasterSecret(t *testing.T) {
-	t.Setenv("ASSETHUB_INTERNAL_AUTH_ENABLED", "true")
+	t.Setenv("FILEHUB_INTERNAL_AUTH_ENABLED", "true")
 
 	_, err := Load("")
 	if err == nil {
@@ -81,7 +81,7 @@ func TestLoadRejectsInternalAuthWithoutMasterSecret(t *testing.T) {
 }
 
 func TestLoadRejectsEnabledAPIKeyAuthWithoutKeys(t *testing.T) {
-	t.Setenv("ASSETHUB_API_KEY_AUTH_ENABLED", "true")
+	t.Setenv("FILEHUB_API_KEY_AUTH_ENABLED", "true")
 
 	_, err := Load("")
 	if err == nil {
@@ -93,12 +93,12 @@ func TestLoadRejectsEnabledAPIKeyAuthWithoutKeys(t *testing.T) {
 }
 
 func TestLoadOSSEnvAliases(t *testing.T) {
-	t.Setenv("ASSETHUB_STORAGE_BACKEND", BackendOSS)
-	t.Setenv("ASSETHUB_OSS_ENDPOINT", "https://oss.example.com")
-	t.Setenv("ASSETHUB_OSS_REGION", "cn-hangzhou")
-	t.Setenv("ASSETHUB_OSS_BUCKET", "assets")
-	t.Setenv("ASSETHUB_OSS_ACCESS_KEY", "ak")
-	t.Setenv("ASSETHUB_OSS_SECRET_KEY", "sk")
+	t.Setenv("FILEHUB_STORAGE_BACKEND", BackendOSS)
+	t.Setenv("FILEHUB_OSS_ENDPOINT", "https://oss.example.com")
+	t.Setenv("FILEHUB_OSS_REGION", "cn-hangzhou")
+	t.Setenv("FILEHUB_OSS_BUCKET", "assets")
+	t.Setenv("FILEHUB_OSS_ACCESS_KEY", "ak")
+	t.Setenv("FILEHUB_OSS_SECRET_KEY", "sk")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -117,8 +117,8 @@ func TestLoadOSSEnvAliases(t *testing.T) {
 }
 
 func TestLoadS3EnvTakesPrecedenceOverOSSAliases(t *testing.T) {
-	t.Setenv("ASSETHUB_S3_ENDPOINT", "https://s3.example.com")
-	t.Setenv("ASSETHUB_OSS_ENDPOINT", "https://oss.example.com")
+	t.Setenv("FILEHUB_S3_ENDPOINT", "https://s3.example.com")
+	t.Setenv("FILEHUB_OSS_ENDPOINT", "https://oss.example.com")
 
 	cfg, err := Load("")
 	if err != nil {

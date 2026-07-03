@@ -1,1 +1,1 @@
-export { default } from '@saker/assethub-pages/run-compare'
+export { default } from '@saker/filehub-pages/run-compare'

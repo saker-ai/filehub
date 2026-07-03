@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/saker-ai/assethub/pkg/config"
+	"github.com/saker-ai/filehub/pkg/config"
 	"github.com/saker-ai/saker-common/internaljwt"
 	"golang.org/x/time/rate"
 )
@@ -91,7 +91,7 @@ func RequestLogger(logger *slog.Logger) gin.HandlerFunc {
 			}
 			attrs = append(attrs, "error", errText)
 		}
-		logger.InfoContext(c.Request.Context(), "assethub request", attrs...)
+		logger.InfoContext(c.Request.Context(), "filehub request", attrs...)
 	}
 }
 
@@ -174,21 +174,21 @@ func scopeAllows(scopes []string, method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodHead:
 		return internaljwt.HasAnyScope(scopes,
-			internaljwt.ScopeAssetHubRead,
-			internaljwt.ScopeAssetHubUpload,
-			internaljwt.ScopeAssetHubWrite,
-			internaljwt.ScopeAssetHubAdmin,
+			internaljwt.ScopeFileHubRead,
+			internaljwt.ScopeFileHubUpload,
+			internaljwt.ScopeFileHubWrite,
+			internaljwt.ScopeFileHubAdmin,
 		)
 	case http.MethodPost, http.MethodPut:
 		return internaljwt.HasAnyScope(scopes,
-			internaljwt.ScopeAssetHubUpload,
-			internaljwt.ScopeAssetHubWrite,
-			internaljwt.ScopeAssetHubAdmin,
+			internaljwt.ScopeFileHubUpload,
+			internaljwt.ScopeFileHubWrite,
+			internaljwt.ScopeFileHubAdmin,
 		)
 	case http.MethodPatch, http.MethodDelete:
 		return internaljwt.HasAnyScope(scopes,
-			internaljwt.ScopeAssetHubWrite,
-			internaljwt.ScopeAssetHubAdmin,
+			internaljwt.ScopeFileHubWrite,
+			internaljwt.ScopeFileHubAdmin,
 		)
 	default:
 		return false

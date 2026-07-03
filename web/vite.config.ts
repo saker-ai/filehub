@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
-const proxyTarget = process.env.ASSETHUB_WEB_PROXY_TARGET || 'http://localhost:17040'
+const proxyTarget = process.env.FILEHUB_WEB_PROXY_TARGET || 'http://localhost:17040'
 
 export default defineConfig({
   plugins: [react()],
@@ -10,7 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@saker/web-shared': path.resolve(__dirname, '../../web-shared/src'),
-      '@saker/assethub-client': path.resolve(__dirname, '../web-client/src'),
+      '@saker/filehub-client': path.resolve(__dirname, '../web-client/src'),
       react: path.resolve(__dirname, 'node_modules/react'),
       'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime'),
       'lucide-react': path.resolve(__dirname, 'node_modules/lucide-react')

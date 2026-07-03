@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Asset, getStats, listAssets, type AssetStats } from '@saker/assethub-client'
+import { Asset, getStats, listAssets, type AssetStats } from '@saker/filehub-client'
 import { AssetCard, formatBytes } from '../components/AssetCard'
 
 const AssetDetail = lazy(() => import('./AssetDetail').then((module) => ({ default: module.AssetDetail })))

@@ -1,4 +1,4 @@
-import { assetThumbnailURL, type Asset } from '@saker/assethub-client'
+import { assetThumbnailURL, type Asset } from '@saker/filehub-client'
 import { AuthImage } from './AuthMedia'
 
 export function AssetCard({ asset, selected, onOpen, onSelect }: { asset: Asset; selected?: boolean; onOpen: () => void; onSelect?: (checked: boolean) => void }) {

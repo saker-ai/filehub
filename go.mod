@@ -1,4 +1,4 @@
-module github.com/saker-ai/assethub
+module github.com/saker-ai/filehub
 
 go 1.26.4
 

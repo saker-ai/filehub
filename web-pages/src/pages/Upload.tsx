@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { uploadAsset, type Asset } from '@saker/assethub-client'
+import { uploadAsset, type Asset } from '@saker/filehub-client'
 import { CodeBlock } from '../components/CodeBlock'
 
 type UploadItem = {

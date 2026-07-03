@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store"
 )
 
 func enrichMetadata(ctx context.Context, asset *store.Asset, data []byte) {
@@ -53,7 +53,7 @@ func probeMedia(ctx context.Context, filename string, data []byte) store.JSONMap
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		return store.JSONMap{}
 	}
-	tmp, err := os.CreateTemp("", "assethub-media-*"+safeMediaExt(filename))
+	tmp, err := os.CreateTemp("", "filehub-media-*"+safeMediaExt(filename))
 	if err != nil {
 		return store.JSONMap{}
 	}
@@ -256,7 +256,7 @@ func safeMediaExt(filename string) string {
 }
 
 func writeTempMedia(data []byte, filename string) (string, func(), error) {
-	tmp, err := os.CreateTemp("", "assethub-thumb-*"+safeMediaExt(filename))
+	tmp, err := os.CreateTemp("", "filehub-thumb-*"+safeMediaExt(filename))
 	if err != nil {
 		return "", func() {}, err
 	}

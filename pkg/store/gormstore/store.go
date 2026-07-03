@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

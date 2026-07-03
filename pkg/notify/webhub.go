@@ -7,14 +7,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/saker-ai/assethub/pkg/config"
+	"github.com/saker-ai/filehub/pkg/config"
 	sakernotify "github.com/saker-ai/saker-common/webhub/notify"
 )
 
 var (
-	globalMu    sync.Mutex
+	globalMu     sync.Mutex
 	globalClient *sakernotify.Client
-	globalErr   error
+	globalErr    error
 )
 
 func newClient(cfg config.WebHubNotifyConfig) (*sakernotify.Client, error) {
@@ -52,7 +52,7 @@ func ResetForTesting() {
 	globalErr = nil
 }
 
-// ReviewCreatedEvent is the payload assethub emits when a human review task
+// ReviewCreatedEvent is the payload filehub emits when a human review task
 // is created and needs reviewer attention.
 type ReviewCreatedEvent struct {
 	ReviewID    string
@@ -67,7 +67,7 @@ type ReviewCreatedEvent struct {
 type ReviewCreatedFunc func(event ReviewCreatedEvent)
 
 // NewReviewCreatedHook returns a ReviewCreatedFunc that emits a WebHub
-// notification when an assethub review task is created. When WebHub notify is
+// notification when an filehub review task is created. When WebHub notify is
 // disabled, the hook is still non-nil but does nothing.
 func NewReviewCreatedHook(cfg config.WebHubNotifyConfig, logger *slog.Logger) (ReviewCreatedFunc, error) {
 	if !cfg.Enabled {
@@ -78,7 +78,7 @@ func NewReviewCreatedHook(cfg config.WebHubNotifyConfig, logger *slog.Logger) (R
 		return nil, err
 	}
 	if logger != nil {
-		logger.Info("assethub webhub notifier enabled", "webhub_url", cfg.WebHubURL)
+		logger.Info("filehub webhub notifier enabled", "webhub_url", cfg.WebHubURL)
 	}
 	return func(event ReviewCreatedEvent) {
 		go func() {
@@ -96,16 +96,16 @@ func NewReviewCreatedHook(cfg config.WebHubNotifyConfig, logger *slog.Logger) (R
 				href = "/assets/" + event.ReferenceID
 			}
 			notifyErr := client.Notify(ctx, sakernotify.Event{
-				Type:      "assethub.review_required",
+				Type:      "filehub.review_required",
 				Title:     event.Title,
 				Body:      body,
 				TenantID:  event.TenantID,
-				SourceApp: "assethub",
+				SourceApp: "filehub",
 				Severity:  "warning",
 				Href:      href,
 			})
 			if notifyErr != nil && logger != nil {
-				logger.Warn("assethub notify failed", "error", notifyErr, "type", "assethub.review_required")
+				logger.Warn("filehub notify failed", "error", notifyErr, "type", "filehub.review_required")
 			}
 		}()
 	}, nil

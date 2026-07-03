@@ -26,7 +26,7 @@ import (
 	"github.com/mojatter/s2"
 	_ "github.com/mojatter/s2/fs"
 	_ "github.com/mojatter/s2/s3"
-	"github.com/saker-ai/assethub/pkg/config"
+	"github.com/saker-ai/filehub/pkg/config"
 )
 
 type Store struct {
@@ -88,7 +88,7 @@ func buildS2Config(cfg config.StorageConfig) (s2.Config, error) {
 	case "", config.BackendOSFS:
 		dataDir := cfg.DataDir
 		if dataDir == "" {
-			dataDir = ".synapse/stack/assethub-data"
+			dataDir = ".synapse/stack/filehub-data"
 		}
 		abs, err := filepath.Abs(dataDir)
 		if err != nil {
@@ -599,7 +599,7 @@ func seekableBody(r io.Reader) (io.ReadSeeker, int64, func(), error) {
 		}
 		return seeker, end - start, func() {}, nil
 	}
-	tmp, err := os.CreateTemp("", "assethub-s3-body-*")
+	tmp, err := os.CreateTemp("", "filehub-s3-body-*")
 	if err != nil {
 		return nil, 0, func() {}, err
 	}

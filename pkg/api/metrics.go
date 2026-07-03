@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store"
 )
 
 var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
@@ -118,22 +118,22 @@ func (m *Metrics) Render(stats *store.AssetStats) string {
 		return keys[i].Status < keys[j].Status
 	})
 	var b strings.Builder
-	b.WriteString("# HELP assethub_requests_total HTTP requests by method, route, and status.\n")
-	b.WriteString("# TYPE assethub_requests_total counter\n")
+	b.WriteString("# HELP filehub_requests_total HTTP requests by method, route, and status.\n")
+	b.WriteString("# TYPE filehub_requests_total counter\n")
 	for _, key := range keys {
 		rm := m.requests[key]
-		fmt.Fprintf(&b, "assethub_requests_total{method=%q,path=%q,status=%q} %d\n", key.Method, key.Path, key.Status, rm.Count)
+		fmt.Fprintf(&b, "filehub_requests_total{method=%q,path=%q,status=%q} %d\n", key.Method, key.Path, key.Status, rm.Count)
 	}
-	b.WriteString("# HELP assethub_request_duration_seconds HTTP request duration histogram.\n")
-	b.WriteString("# TYPE assethub_request_duration_seconds histogram\n")
+	b.WriteString("# HELP filehub_request_duration_seconds HTTP request duration histogram.\n")
+	b.WriteString("# TYPE filehub_request_duration_seconds histogram\n")
 	for _, key := range keys {
 		rm := m.requests[key]
 		for i, bucket := range durationBuckets {
-			fmt.Fprintf(&b, "assethub_request_duration_seconds_bucket{method=%q,path=%q,status=%q,le=%q} %d\n", key.Method, key.Path, key.Status, fmt.Sprintf("%g", bucket), rm.Buckets[i])
+			fmt.Fprintf(&b, "filehub_request_duration_seconds_bucket{method=%q,path=%q,status=%q,le=%q} %d\n", key.Method, key.Path, key.Status, fmt.Sprintf("%g", bucket), rm.Buckets[i])
 		}
-		fmt.Fprintf(&b, "assethub_request_duration_seconds_bucket{method=%q,path=%q,status=%q,le=%q} %d\n", key.Method, key.Path, key.Status, "+Inf", rm.Buckets[len(rm.Buckets)-1])
-		fmt.Fprintf(&b, "assethub_request_duration_seconds_sum{method=%q,path=%q,status=%q} %g\n", key.Method, key.Path, key.Status, rm.Sum)
-		fmt.Fprintf(&b, "assethub_request_duration_seconds_count{method=%q,path=%q,status=%q} %d\n", key.Method, key.Path, key.Status, rm.Count)
+		fmt.Fprintf(&b, "filehub_request_duration_seconds_bucket{method=%q,path=%q,status=%q,le=%q} %d\n", key.Method, key.Path, key.Status, "+Inf", rm.Buckets[len(rm.Buckets)-1])
+		fmt.Fprintf(&b, "filehub_request_duration_seconds_sum{method=%q,path=%q,status=%q} %g\n", key.Method, key.Path, key.Status, rm.Sum)
+		fmt.Fprintf(&b, "filehub_request_duration_seconds_count{method=%q,path=%q,status=%q} %d\n", key.Method, key.Path, key.Status, rm.Count)
 	}
 	uploadBytes := m.uploadBytes
 	thumbnailHits := m.thumbnailHits
@@ -142,32 +142,32 @@ func (m *Metrics) Render(stats *store.AssetStats) string {
 	processingBuckets := append([]int64(nil), m.processingBuckets...)
 	m.mu.Unlock()
 
-	b.WriteString("# HELP assethub_upload_bytes_total Uploaded bytes accepted by AssetHub.\n")
-	b.WriteString("# TYPE assethub_upload_bytes_total counter\n")
-	fmt.Fprintf(&b, "assethub_upload_bytes_total %d\n", uploadBytes)
-	b.WriteString("# HELP assethub_thumbnail_cache_hits_total Thumbnail cache hits.\n")
-	b.WriteString("# TYPE assethub_thumbnail_cache_hits_total counter\n")
-	fmt.Fprintf(&b, "assethub_thumbnail_cache_hits_total %d\n", thumbnailHits)
-	b.WriteString("# HELP assethub_processing_duration_seconds Asset processing duration histogram.\n")
-	b.WriteString("# TYPE assethub_processing_duration_seconds histogram\n")
+	b.WriteString("# HELP filehub_upload_bytes_total Uploaded bytes accepted by FileHub.\n")
+	b.WriteString("# TYPE filehub_upload_bytes_total counter\n")
+	fmt.Fprintf(&b, "filehub_upload_bytes_total %d\n", uploadBytes)
+	b.WriteString("# HELP filehub_thumbnail_cache_hits_total Thumbnail cache hits.\n")
+	b.WriteString("# TYPE filehub_thumbnail_cache_hits_total counter\n")
+	fmt.Fprintf(&b, "filehub_thumbnail_cache_hits_total %d\n", thumbnailHits)
+	b.WriteString("# HELP filehub_processing_duration_seconds Asset processing duration histogram.\n")
+	b.WriteString("# TYPE filehub_processing_duration_seconds histogram\n")
 	for i, bucket := range durationBuckets {
-		fmt.Fprintf(&b, "assethub_processing_duration_seconds_bucket{le=%q} %d\n", fmt.Sprintf("%g", bucket), processingBuckets[i])
+		fmt.Fprintf(&b, "filehub_processing_duration_seconds_bucket{le=%q} %d\n", fmt.Sprintf("%g", bucket), processingBuckets[i])
 	}
-	fmt.Fprintf(&b, "assethub_processing_duration_seconds_bucket{le=%q} %d\n", "+Inf", processingBuckets[len(processingBuckets)-1])
-	fmt.Fprintf(&b, "assethub_processing_duration_seconds_sum %g\n", processingSum)
-	fmt.Fprintf(&b, "assethub_processing_duration_seconds_count %d\n", processingCount)
+	fmt.Fprintf(&b, "filehub_processing_duration_seconds_bucket{le=%q} %d\n", "+Inf", processingBuckets[len(processingBuckets)-1])
+	fmt.Fprintf(&b, "filehub_processing_duration_seconds_sum %g\n", processingSum)
+	fmt.Fprintf(&b, "filehub_processing_duration_seconds_count %d\n", processingCount)
 	if stats != nil {
-		b.WriteString("# HELP assethub_storage_bytes Current stored bytes.\n")
-		b.WriteString("# TYPE assethub_storage_bytes gauge\n")
-		fmt.Fprintf(&b, "assethub_storage_bytes %d\n", stats.TotalBytes)
-		b.WriteString("# HELP assethub_assets_total Assets by purpose or status.\n")
-		b.WriteString("# TYPE assethub_assets_total gauge\n")
-		fmt.Fprintf(&b, "assethub_assets_total{purpose=%q,status=%q} %d\n", "all", "all", stats.Total)
+		b.WriteString("# HELP filehub_storage_bytes Current stored bytes.\n")
+		b.WriteString("# TYPE filehub_storage_bytes gauge\n")
+		fmt.Fprintf(&b, "filehub_storage_bytes %d\n", stats.TotalBytes)
+		b.WriteString("# HELP filehub_assets_total Assets by purpose or status.\n")
+		b.WriteString("# TYPE filehub_assets_total gauge\n")
+		fmt.Fprintf(&b, "filehub_assets_total{purpose=%q,status=%q} %d\n", "all", "all", stats.Total)
 		for _, pair := range sortedCounts(stats.ByPurpose) {
-			fmt.Fprintf(&b, "assethub_assets_total{purpose=%q,status=%q} %d\n", pair.Key, "all", pair.Count)
+			fmt.Fprintf(&b, "filehub_assets_total{purpose=%q,status=%q} %d\n", pair.Key, "all", pair.Count)
 		}
 		for _, pair := range sortedCounts(stats.ByStatus) {
-			fmt.Fprintf(&b, "assethub_assets_total{purpose=%q,status=%q} %d\n", "all", pair.Key, pair.Count)
+			fmt.Fprintf(&b, "filehub_assets_total{purpose=%q,status=%q} %d\n", "all", pair.Key, pair.Count)
 		}
 	}
 	return b.String()

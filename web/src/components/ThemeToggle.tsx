@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 
 export function ThemeToggle() {
-  const [dark, setDark] = useState(() => localStorage.getItem('assethub_theme') === 'dark')
+  const [dark, setDark] = useState(() => localStorage.getItem('filehub_theme') === 'dark')
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-    localStorage.setItem('assethub_theme', dark ? 'dark' : 'light')
+    localStorage.setItem('filehub_theme', dark ? 'dark' : 'light')
   }, [dark])
 
   return (

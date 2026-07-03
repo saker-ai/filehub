@@ -3,15 +3,15 @@ package server
 import "testing"
 
 func TestServiceInstanceUsesWebHubRoutes(t *testing.T) {
-	got := serviceInstance("assethub", "AssetHub", ":17040", "/assethub", "/assets", "assethub")
+	got := serviceInstance("filehub", "FileHub", ":17040", "/filehub", "/assets", "filehub")
 
-	if got.ID != "assethub" || got.Name != "AssetHub" || got.Scheme != "http" {
+	if got.ID != "filehub" || got.Name != "FileHub" || got.Scheme != "http" {
 		t.Fatalf("identity = %#v", got)
 	}
 	if got.Address != "127.0.0.1" || got.Port != 17040 {
 		t.Fatalf("address = %s:%d", got.Address, got.Port)
 	}
-	if got.Prefix != "/assethub" || got.NativeRoute != "/assets" || got.HealthPath != "/healthz" || got.Audience != "assethub" {
+	if got.Prefix != "/filehub" || got.NativeRoute != "/assets" || got.HealthPath != "/healthz" || got.Audience != "filehub" {
 		t.Fatalf("routes = %#v", got)
 	}
 }

@@ -9,13 +9,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/saker-ai/assethub/pkg/api"
-	"github.com/saker-ai/assethub/pkg/config"
-	assethubnotify "github.com/saker-ai/assethub/pkg/notify"
-	"github.com/saker-ai/assethub/pkg/processing"
-	"github.com/saker-ai/assethub/pkg/storage"
-	"github.com/saker-ai/assethub/pkg/store"
-	"github.com/saker-ai/assethub/pkg/store/gormstore"
+	"github.com/saker-ai/filehub/pkg/api"
+	"github.com/saker-ai/filehub/pkg/config"
+	filehubnotify "github.com/saker-ai/filehub/pkg/notify"
+	"github.com/saker-ai/filehub/pkg/processing"
+	"github.com/saker-ai/filehub/pkg/storage"
+	"github.com/saker-ai/filehub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store/gormstore"
 )
 
 type Server struct {
@@ -47,7 +47,7 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 	metrics := api.NewMetrics()
 	pipeline := processing.New(cfg.ProcessingConcurrency, blobs, db, logger)
 	pipeline.ObserveProcessing(metrics.ObserveProcessing)
-	reviewCreatedHook, err := assethubnotify.NewReviewCreatedHook(cfg.WebHubNotify, logger)
+	reviewCreatedHook, err := filehubnotify.NewReviewCreatedHook(cfg.WebHubNotify, logger)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("build review-created hook: %w", err)
@@ -70,18 +70,18 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 func logSecurityWarnings(logger *slog.Logger, cfg config.Config) {
 	if cfg.APIKeyAuthEnabled {
 		for _, key := range cfg.APIKeys {
-			if key == "dev-assethub-key" {
-				logger.Warn("default API key is enabled; set ASSETHUB_API_KEYS before production use")
+			if key == "dev-filehub-key" {
+				logger.Warn("default API key is enabled; set FILEHUB_API_KEYS before production use")
 				break
 			}
 		}
 	}
-	if cfg.PresignSecret == "assethub-presign-secret" {
-		logger.Warn("default presign secret is enabled; set ASSETHUB_PRESIGN_SECRET before production use")
+	if cfg.PresignSecret == "filehub-presign-secret" {
+		logger.Warn("default presign secret is enabled; set FILEHUB_PRESIGN_SECRET before production use")
 	}
 	for _, origin := range cfg.CORSOrigins {
 		if origin == "*" {
-			logger.Warn("CORS allows all origins; set ASSETHUB_CORS_ORIGINS before production use")
+			logger.Warn("CORS allows all origins; set FILEHUB_CORS_ORIGINS before production use")
 			break
 		}
 	}
@@ -99,7 +99,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 	errCh := make(chan error, 1)
 	go func() {
-		s.logger.Info("assethub starting", "addr", s.cfg.Addr, "dsn", s.cfg.DSN, "backend", s.cfg.Storage.Backend)
+		s.logger.Info("filehub starting", "addr", s.cfg.Addr, "dsn", s.cfg.DSN, "backend", s.cfg.Storage.Backend)
 		err := s.http.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
@@ -185,7 +185,7 @@ func (s *Server) deleteAsset(ctx context.Context, asset *store.Asset) error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.logger.Info("assethub shutting down")
+	s.logger.Info("filehub shutting down")
 	var out error
 	if err := s.http.Shutdown(ctx); err != nil {
 		out = errors.Join(out, fmt.Errorf("http shutdown: %w", err))

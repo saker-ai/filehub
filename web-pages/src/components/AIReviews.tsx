@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createAssetAIReview, listAssetAIReviews, type AIReview } from '@saker/assethub-client'
+import { createAssetAIReview, listAssetAIReviews, type AIReview } from '@saker/filehub-client'
 
 export function AIReviewResults({ assetID, editable = false }: { assetID: string; editable?: boolean }) {
   const { t } = useTranslation()

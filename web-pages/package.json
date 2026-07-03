@@ -1,8 +1,8 @@
 {
-  "name": "@saker/assethub-pages",
+  "name": "@saker/filehub-pages",
   "private": true,
   "version": "0.1.0",
-  "description": "AssetHub business pages shared across webhub-native and standalone adapters",
+  "description": "FileHub business pages shared across webhub-native and standalone adapters",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@google/model-viewer": "^4.3.1",
-    "@saker/assethub-client": "workspace:*",
+    "@saker/filehub-client": "workspace:*",
     "@saker/web-shared": "workspace:*",
     "@shikijs/engine-javascript": "^4.2.0",
     "dompurify": "^3.4.10",

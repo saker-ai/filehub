@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { assetContentURL, createAssetReview, fetchAssetText, getAsset, getAssetReview, updateAssetReview, updateAssetReviewItem, type Asset, type AssetReview } from '@saker/assethub-client'
+import { assetContentURL, createAssetReview, fetchAssetText, getAsset, getAssetReview, updateAssetReview, updateAssetReviewItem, type Asset, type AssetReview } from '@saker/filehub-client'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo } from '../components/AuthMedia'
 import { formatBytes } from '../components/AssetCard'
 import { AIReviewResults } from '../components/AIReviews'

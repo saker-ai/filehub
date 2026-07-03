@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store"
 )
 
 type errorBody struct {

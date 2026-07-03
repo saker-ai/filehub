@@ -16,23 +16,23 @@ export * from './types'
 
 const ASSETS_PATH = '/v1/assets'
 
-function assetHubURL(path: string): string {
+function fileHubURL(path: string): string {
   return appURL(appBasePath(import.meta.env.BASE_URL), path)
 }
 
 function baseURL(): string {
-  return assetHubURL('/v1')
+  return fileHubURL('/v1')
 }
 
-export function assetHubPath(path: string): string {
-  return assetHubURL(path)
+export function fileHubPath(path: string): string {
+  return fileHubURL(path)
 }
 
 export function assetContentURL(assetID: string, opts: { download?: boolean } = {}): string {
   const search = new URLSearchParams()
   if (opts.download) search.set('download', 'true')
   const query = search.toString()
-  return assetHubURL(`${ASSETS_PATH}/${encodeURIComponent(assetID)}/content${query ? `?${query}` : ''}`)
+  return fileHubURL(`${ASSETS_PATH}/${encodeURIComponent(assetID)}/content${query ? `?${query}` : ''}`)
 }
 
 export function assetThumbnailURL(assetID: string, opts: { width?: number; height?: number; format?: string } = {}): string {
@@ -41,15 +41,15 @@ export function assetThumbnailURL(assetID: string, opts: { width?: number; heigh
   if (opts.height) search.set('height', String(opts.height))
   if (opts.format) search.set('format', opts.format)
   const query = search.toString()
-  return assetHubURL(`${ASSETS_PATH}/${encodeURIComponent(assetID)}/thumbnail${query ? `?${query}` : ''}`)
+  return fileHubURL(`${ASSETS_PATH}/${encodeURIComponent(assetID)}/thumbnail${query ? `?${query}` : ''}`)
 }
 
 export function getAPIKey(): string {
-  return localStorage.getItem('assethub_api_key') || 'dev-assethub-key'
+  return localStorage.getItem('filehub_api_key') || 'dev-filehub-key'
 }
 
 export function setAPIKey(key: string) {
-  localStorage.setItem('assethub_api_key', key)
+  localStorage.setItem('filehub_api_key', key)
 }
 
 export function authHeaders(init?: HeadersInit): Headers {

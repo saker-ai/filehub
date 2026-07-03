@@ -23,12 +23,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/saker-ai/assethub/pkg/config"
-	assethubnotify "github.com/saker-ai/assethub/pkg/notify"
-	"github.com/saker-ai/assethub/pkg/processing"
-	blob "github.com/saker-ai/assethub/pkg/storage"
-	"github.com/saker-ai/assethub/pkg/store"
-	"github.com/saker-ai/assethub/web"
+	"github.com/saker-ai/filehub/pkg/config"
+	filehubnotify "github.com/saker-ai/filehub/pkg/notify"
+	"github.com/saker-ai/filehub/pkg/processing"
+	blob "github.com/saker-ai/filehub/pkg/storage"
+	"github.com/saker-ai/filehub/pkg/store"
+	"github.com/saker-ai/filehub/web"
 )
 
 type RouterDeps struct {
@@ -42,7 +42,7 @@ type RouterDeps struct {
 	Metrics   *Metrics
 	// ReviewCreatedHook is invoked after a human review task is created.
 	// Optional; when nil, no notification is emitted.
-	ReviewCreatedHook assethubnotify.ReviewCreatedFunc
+	ReviewCreatedHook filehubnotify.ReviewCreatedFunc
 }
 
 func NewRouter(deps RouterDeps) *gin.Engine {
@@ -139,7 +139,7 @@ type handler struct {
 	uploadSlots       chan struct{}
 	quota             *quotaTracker
 	statsCache        *statsCache
-	reviewCreatedHook assethubnotify.ReviewCreatedFunc
+	reviewCreatedHook filehubnotify.ReviewCreatedFunc
 }
 
 type quotaTracker struct {
@@ -174,7 +174,7 @@ func newHandler(deps RouterDeps) handler {
 	}
 	hook := deps.ReviewCreatedHook
 	if hook == nil {
-		hook = func(assethubnotify.ReviewCreatedEvent) {}
+		hook = func(filehubnotify.ReviewCreatedEvent) {}
 	}
 	return handler{
 		deps:              deps,
@@ -772,7 +772,7 @@ func (h handler) createReview(c *gin.Context) {
 		return
 	}
 	if h.reviewCreatedHook != nil {
-		h.reviewCreatedHook(assethubnotify.ReviewCreatedEvent{
+		h.reviewCreatedHook(filehubnotify.ReviewCreatedEvent{
 			ReviewID:    review.ID,
 			TenantID:    review.TenantID,
 			Title:       review.Title,
@@ -1534,7 +1534,7 @@ func (h handler) completeUpload(c *gin.Context) {
 		c.JSON(http.StatusOK, assetResponse(asset, false))
 		return
 	}
-	tmp, err := os.CreateTemp("", "assethub-complete-*")
+	tmp, err := os.CreateTemp("", "filehub-complete-*")
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -1861,7 +1861,7 @@ func shortID() string {
 }
 
 func spoolToTemp(r io.Reader, maxBytes int64) (*os.File, int64, string, []byte, error) {
-	tmp, err := os.CreateTemp("", "assethub-upload-*")
+	tmp, err := os.CreateTemp("", "filehub-upload-*")
 	if err != nil {
 		return nil, 0, "", nil, err
 	}

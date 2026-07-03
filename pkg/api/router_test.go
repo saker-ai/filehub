@@ -29,12 +29,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/saker-ai/assethub/pkg/config"
-	assethubnotify "github.com/saker-ai/assethub/pkg/notify"
-	"github.com/saker-ai/assethub/pkg/processing"
-	"github.com/saker-ai/assethub/pkg/storage"
-	"github.com/saker-ai/assethub/pkg/store/gormstore"
-	"github.com/saker-ai/assethub/web"
+	"github.com/saker-ai/filehub/pkg/config"
+	filehubnotify "github.com/saker-ai/filehub/pkg/notify"
+	"github.com/saker-ai/filehub/pkg/processing"
+	"github.com/saker-ai/filehub/pkg/storage"
+	"github.com/saker-ai/filehub/pkg/store/gormstore"
+	"github.com/saker-ai/filehub/web"
 	"github.com/saker-ai/saker-common/internaljwt"
 )
 
@@ -788,11 +788,11 @@ func TestRouterInternalJWTAuth(t *testing.T) {
 		t.Fatalf("signer: %v", err)
 	}
 	token, _, err := signer.Sign(internaljwt.SignInput{
-		Audience:      "assethub",
+		Audience:      "filehub",
 		TenantID:      "tenant-jwt",
 		PrincipalType: "user",
 		PrincipalID:   "user-jwt",
-		Scopes:        []string{"assethub:read", "assethub:upload", "assethub:write"},
+		Scopes:        []string{"filehub:read", "filehub:upload", "filehub:write"},
 	})
 	if err != nil {
 		t.Fatalf("sign: %v", err)
@@ -864,7 +864,7 @@ func TestRouterOpenAPIAndMetrics(t *testing.T) {
 	}
 
 	docs := ts.request(t, http.MethodGet, "/docs", nil, nil)
-	if docs.Code != http.StatusOK || !strings.Contains(docs.Body.String(), "AssetHub API") {
+	if docs.Code != http.StatusOK || !strings.Contains(docs.Body.String(), "FileHub API") {
 		t.Fatalf("docs status=%d body head=%q", docs.Code, docs.Body.String()[:min(80, docs.Body.Len())])
 	}
 
@@ -874,12 +874,12 @@ func TestRouterOpenAPIAndMetrics(t *testing.T) {
 	}
 	body := metrics.Body.String()
 	for _, marker := range []string{
-		"assethub_requests_total",
-		"assethub_request_duration_seconds_bucket",
-		"assethub_upload_bytes_total",
-		"assethub_storage_bytes",
-		"assethub_thumbnail_cache_hits_total 1",
-		`assethub_assets_total{purpose="media",status="all"} 1`,
+		"filehub_requests_total",
+		"filehub_request_duration_seconds_bucket",
+		"filehub_upload_bytes_total",
+		"filehub_storage_bytes",
+		"filehub_thumbnail_cache_hits_total 1",
+		`filehub_assets_total{purpose="media",status="all"} 1`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("metrics missing %q in:\n%s", marker, body)
@@ -954,7 +954,7 @@ func newTestServer(t *testing.T) *testServer {
 func newTestServerWithConfig(t *testing.T, cfg config.Config) *testServer {
 	t.Helper()
 	ctx := context.Background()
-	cfg.DSN = "sqlite://" + filepath.Join(t.TempDir(), "assethub.db")
+	cfg.DSN = "sqlite://" + filepath.Join(t.TempDir(), "filehub.db")
 	def := config.Defaults()
 	if cfg.Storage.Backend == "" || (cfg.Storage.Backend == config.BackendOSFS && cfg.Storage.DataDir == def.Storage.DataDir) {
 		cfg.Storage.Backend = config.BackendMemFS
@@ -1269,9 +1269,9 @@ func TestRouterCreateReviewInvokesHook(t *testing.T) {
 	first := ts.uploadAsset(t, "/v1/assets?on_duplicate=allow", "hook-review.txt", []byte("payload"), map[string]string{"purpose": "media"})
 	firstID := first["id"].(string)
 
-	var gotEvent assethubnotify.ReviewCreatedEvent
+	var gotEvent filehubnotify.ReviewCreatedEvent
 	done := make(chan struct{})
-	hook := func(event assethubnotify.ReviewCreatedEvent) {
+	hook := func(event filehubnotify.ReviewCreatedEvent) {
 		gotEvent = event
 		close(done)
 	}
@@ -1279,7 +1279,7 @@ func TestRouterCreateReviewInvokesHook(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.APIKeyAuthEnabled = true
 	cfg.APIKeys = []string{"test-key"}
-	cfg.DSN = "sqlite://" + filepath.Join(t.TempDir(), "assethub-hook.db")
+	cfg.DSN = "sqlite://" + filepath.Join(t.TempDir(), "filehub-hook.db")
 	cfg.Storage.Backend = config.BackendMemFS
 	cfg.PresignSecret = "test-secret"
 	cfg.RatePerSec = 10000

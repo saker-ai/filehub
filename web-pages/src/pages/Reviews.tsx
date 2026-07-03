@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { listAssetReviews, type AssetReview } from '@saker/assethub-client'
+import { listAssetReviews, type AssetReview } from '@saker/filehub-client'
 
 export default function Reviews() {
   const { t } = useTranslation()

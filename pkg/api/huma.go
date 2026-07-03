@@ -34,11 +34,11 @@ func NewDocOnlyAPI(api huma.API) huma.API {
 }
 
 func RegisterHumaDocs(engine *gin.Engine) HumaSetup {
-	config := huma.DefaultConfig("AssetHub API", "1.0.0")
-	config.Info.Description = "AssetHub file and asset management API for OpenAI-compatible files, media assets, metadata, tags, downloads, presigned URLs, and chunk uploads."
+	config := huma.DefaultConfig("FileHub API", "1.0.0")
+	config.Info.Description = "FileHub file and asset management API for OpenAI-compatible files, media assets, metadata, tags, downloads, presigned URLs, and chunk uploads."
 	config.Info.Contact = &huma.Contact{
 		Name: "Saker",
-		URL:  "https://github.com/saker-ai/assethub",
+		URL:  "https://github.com/saker-ai/filehub",
 	}
 	config.Info.License = &huma.License{
 		Name: "Apache 2.0",
@@ -55,13 +55,13 @@ func RegisterHumaDocs(engine *gin.Engine) HumaSetup {
 			Type:         "http",
 			Scheme:       "bearer",
 			BearerFormat: "Internal JWT or migration API key",
-			Description:  "Internal JWT for /v1 endpoints. AssetHub API keys are migration-only and require explicit enablement.",
+			Description:  "Internal JWT for /v1 endpoints. FileHub API keys are migration-only and require explicit enablement.",
 		},
 		"APIKeyAuth": {
 			Type:        "apiKey",
 			In:          "header",
 			Name:        "X-API-Key",
-			Description: "Migration-only AssetHub API key header. Requires explicit enablement.",
+			Description: "Migration-only FileHub API key header. Requires explicit enablement.",
 		},
 	}
 

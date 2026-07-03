@@ -105,11 +105,11 @@ func Defaults() Config {
 	return Config{
 		Addr:                  ":17040",
 		LogLevel:              "info",
-		DSN:                   "sqlite://.synapse/stack/assethub.db",
-		Storage:               StorageConfig{Backend: BackendOSFS, DataDir: ".synapse/stack/assethub-data"},
+		DSN:                   "sqlite://.synapse/stack/filehub.db",
+		Storage:               StorageConfig{Backend: BackendOSFS, DataDir: ".synapse/stack/filehub-data"},
 		APIKeys:               nil,
-		InternalAuth:          InternalAuthConfig{Issuer: "synapse", Audience: "assethub", TTL: 5 * time.Minute},
-		PresignSecret:         "assethub-presign-secret",
+		InternalAuth:          InternalAuthConfig{Issuer: "synapse", Audience: "filehub", TTL: 5 * time.Minute},
+		PresignSecret:         "filehub-presign-secret",
 		PresignTTL:            7 * 24 * time.Hour,
 		MaxUploadBytes:        512 * 1024 * 1024,
 		MaxConcurrentUploads:  10,
@@ -223,57 +223,57 @@ func applyEnv(c *Config) {
 			setString(key, dst)
 		}
 	}
-	setString("ASSETHUB_ADDR", &c.Addr)
-	setString("ASSETHUB_DSN", &c.DSN)
-	setString("ASSETHUB_LOG_LEVEL", &c.LogLevel)
-	setString("ASSETHUB_STORAGE_BACKEND", &c.Storage.Backend)
-	setString("ASSETHUB_STORAGE_DIR", &c.Storage.DataDir)
-	setString("ASSETHUB_STORAGE_PREFIX", &c.Storage.Prefix)
-	setString("ASSETHUB_S3_ENDPOINT", &c.Storage.S3Endpoint)
-	setString("ASSETHUB_S3_REGION", &c.Storage.S3Region)
-	setString("ASSETHUB_S3_BUCKET", &c.Storage.S3Bucket)
-	setString("ASSETHUB_S3_ACCESS_KEY", &c.Storage.S3AccessKey)
-	setString("ASSETHUB_S3_SECRET_KEY", &c.Storage.S3SecretKey)
-	setStringIfEmpty("ASSETHUB_OSS_ENDPOINT", &c.Storage.S3Endpoint)
-	setStringIfEmpty("ASSETHUB_OSS_REGION", &c.Storage.S3Region)
-	setStringIfEmpty("ASSETHUB_OSS_BUCKET", &c.Storage.S3Bucket)
-	setStringIfEmpty("ASSETHUB_OSS_ACCESS_KEY", &c.Storage.S3AccessKey)
-	setStringIfEmpty("ASSETHUB_OSS_SECRET_KEY", &c.Storage.S3SecretKey)
-	setString("ASSETHUB_PRESIGN_SECRET", &c.PresignSecret)
-	setBool("ASSETHUB_API_KEY_AUTH_ENABLED", &c.APIKeyAuthEnabled)
-	if v := csvEnv("ASSETHUB_API_KEYS"); len(v) > 0 {
+	setString("FILEHUB_ADDR", &c.Addr)
+	setString("FILEHUB_DSN", &c.DSN)
+	setString("FILEHUB_LOG_LEVEL", &c.LogLevel)
+	setString("FILEHUB_STORAGE_BACKEND", &c.Storage.Backend)
+	setString("FILEHUB_STORAGE_DIR", &c.Storage.DataDir)
+	setString("FILEHUB_STORAGE_PREFIX", &c.Storage.Prefix)
+	setString("FILEHUB_S3_ENDPOINT", &c.Storage.S3Endpoint)
+	setString("FILEHUB_S3_REGION", &c.Storage.S3Region)
+	setString("FILEHUB_S3_BUCKET", &c.Storage.S3Bucket)
+	setString("FILEHUB_S3_ACCESS_KEY", &c.Storage.S3AccessKey)
+	setString("FILEHUB_S3_SECRET_KEY", &c.Storage.S3SecretKey)
+	setStringIfEmpty("FILEHUB_OSS_ENDPOINT", &c.Storage.S3Endpoint)
+	setStringIfEmpty("FILEHUB_OSS_REGION", &c.Storage.S3Region)
+	setStringIfEmpty("FILEHUB_OSS_BUCKET", &c.Storage.S3Bucket)
+	setStringIfEmpty("FILEHUB_OSS_ACCESS_KEY", &c.Storage.S3AccessKey)
+	setStringIfEmpty("FILEHUB_OSS_SECRET_KEY", &c.Storage.S3SecretKey)
+	setString("FILEHUB_PRESIGN_SECRET", &c.PresignSecret)
+	setBool("FILEHUB_API_KEY_AUTH_ENABLED", &c.APIKeyAuthEnabled)
+	if v := csvEnv("FILEHUB_API_KEYS"); len(v) > 0 {
 		c.APIKeys = v
 	}
-	setBool("ASSETHUB_INTERNAL_AUTH_ENABLED", &c.InternalAuth.Enabled)
-	setString("ASSETHUB_INTERNAL_AUTH_ISSUER", &c.InternalAuth.Issuer)
-	setString("ASSETHUB_INTERNAL_AUTH_AUDIENCE", &c.InternalAuth.Audience)
-	setString("ASSETHUB_INTERNAL_AUTH_MASTER_SECRET", &c.InternalAuth.MasterSecret)
-	setBool("ASSETHUB_INTERNAL_AUTH_ALLOW_AUTHORIZATION_FALLBACK", &c.InternalAuth.AllowAuthorizationFallback)
-	setDuration("ASSETHUB_INTERNAL_AUTH_TTL", &c.InternalAuth.TTL)
-	setDuration("ASSETHUB_INTERNAL_AUTH_CLOCK_SKEW", &c.InternalAuth.ClockSkew)
-	if v := csvEnv("ASSETHUB_CORS_ORIGINS"); len(v) > 0 {
+	setBool("FILEHUB_INTERNAL_AUTH_ENABLED", &c.InternalAuth.Enabled)
+	setString("FILEHUB_INTERNAL_AUTH_ISSUER", &c.InternalAuth.Issuer)
+	setString("FILEHUB_INTERNAL_AUTH_AUDIENCE", &c.InternalAuth.Audience)
+	setString("FILEHUB_INTERNAL_AUTH_MASTER_SECRET", &c.InternalAuth.MasterSecret)
+	setBool("FILEHUB_INTERNAL_AUTH_ALLOW_AUTHORIZATION_FALLBACK", &c.InternalAuth.AllowAuthorizationFallback)
+	setDuration("FILEHUB_INTERNAL_AUTH_TTL", &c.InternalAuth.TTL)
+	setDuration("FILEHUB_INTERNAL_AUTH_CLOCK_SKEW", &c.InternalAuth.ClockSkew)
+	if v := csvEnv("FILEHUB_CORS_ORIGINS"); len(v) > 0 {
 		c.CORSOrigins = v
 	}
-	setDuration("ASSETHUB_PRESIGN_TTL", &c.PresignTTL)
-	setDuration("ASSETHUB_CHUNK_UPLOAD_MAX_AGE", &c.ChunkUploadMaxAge)
-	setDuration("ASSETHUB_EXTERNAL_FETCH_TIMEOUT", &c.ExternalFetchTimeout)
-	setDuration("ASSETHUB_GC_INTERVAL", &c.GCInterval)
-	setInt64("ASSETHUB_MAX_UPLOAD_BYTES", &c.MaxUploadBytes)
-	setInt64("ASSETHUB_MAX_STORAGE_BYTES", &c.MaxStorageBytes)
-	setInt("ASSETHUB_MAX_CONCURRENT_UPLOADS", &c.MaxConcurrentUploads)
-	setInt64("ASSETHUB_EXTERNAL_FETCH_MAX_SIZE", &c.ExternalFetchMaxSize)
-	setInt("ASSETHUB_PROCESSING_CONCURRENCY", &c.ProcessingConcurrency)
-	setInt("ASSETHUB_RATE_PER_SEC", &c.RatePerSec)
-	setInt("ASSETHUB_RATE_BURST", &c.RateBurst)
-	setBool("ASSETHUB_METRICS_ENABLED", &c.MetricsEnabled)
-	setString("ASSETHUB_METRICS_PATH", &c.MetricsPath)
-	setBool("ASSETHUB_WEB_ENABLED", &c.WebEnabled)
-	setBool("ASSETHUB_WEBHUB_NOTIFY_ENABLED", &c.WebHubNotify.Enabled)
-	setString("ASSETHUB_WEBHUB_NOTIFY_URL", &c.WebHubNotify.WebHubURL)
-	setString("ASSETHUB_WEBHUB_NOTIFY_WARDEN_URL", &c.WebHubNotify.WardenURL)
-	setString("ASSETHUB_WEBHUB_NOTIFY_API_KEY", &c.WebHubNotify.APIKey)
-	setString("ASSETHUB_WEBHUB_NOTIFY_AUDIENCE", &c.WebHubNotify.Audience)
-	setString("ASSETHUB_WEBHUB_NOTIFY_SCOPE", &c.WebHubNotify.Scope)
+	setDuration("FILEHUB_PRESIGN_TTL", &c.PresignTTL)
+	setDuration("FILEHUB_CHUNK_UPLOAD_MAX_AGE", &c.ChunkUploadMaxAge)
+	setDuration("FILEHUB_EXTERNAL_FETCH_TIMEOUT", &c.ExternalFetchTimeout)
+	setDuration("FILEHUB_GC_INTERVAL", &c.GCInterval)
+	setInt64("FILEHUB_MAX_UPLOAD_BYTES", &c.MaxUploadBytes)
+	setInt64("FILEHUB_MAX_STORAGE_BYTES", &c.MaxStorageBytes)
+	setInt("FILEHUB_MAX_CONCURRENT_UPLOADS", &c.MaxConcurrentUploads)
+	setInt64("FILEHUB_EXTERNAL_FETCH_MAX_SIZE", &c.ExternalFetchMaxSize)
+	setInt("FILEHUB_PROCESSING_CONCURRENCY", &c.ProcessingConcurrency)
+	setInt("FILEHUB_RATE_PER_SEC", &c.RatePerSec)
+	setInt("FILEHUB_RATE_BURST", &c.RateBurst)
+	setBool("FILEHUB_METRICS_ENABLED", &c.MetricsEnabled)
+	setString("FILEHUB_METRICS_PATH", &c.MetricsPath)
+	setBool("FILEHUB_WEB_ENABLED", &c.WebEnabled)
+	setBool("FILEHUB_WEBHUB_NOTIFY_ENABLED", &c.WebHubNotify.Enabled)
+	setString("FILEHUB_WEBHUB_NOTIFY_URL", &c.WebHubNotify.WebHubURL)
+	setString("FILEHUB_WEBHUB_NOTIFY_WARDEN_URL", &c.WebHubNotify.WardenURL)
+	setString("FILEHUB_WEBHUB_NOTIFY_API_KEY", &c.WebHubNotify.APIKey)
+	setString("FILEHUB_WEBHUB_NOTIFY_AUDIENCE", &c.WebHubNotify.Audience)
+	setString("FILEHUB_WEBHUB_NOTIFY_SCOPE", &c.WebHubNotify.Scope)
 }
 
 func csvEnv(key string) []string {

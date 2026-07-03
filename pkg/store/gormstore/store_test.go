@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/store"
 )
 
 func TestStoreCreateDedupeKeyUniqueOnlyWhenSet(t *testing.T) {
 	ctx := context.Background()
-	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "assethub.db"))
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestStoreCreateDedupeKeyUniqueOnlyWhenSet(t *testing.T) {
 
 func TestStoreListFiltersByMetadata(t *testing.T) {
 	ctx := context.Background()
-	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "assethub.db"))
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestStoreListFiltersByMetadata(t *testing.T) {
 
 func TestStoreListCursorPagination(t *testing.T) {
 	ctx := context.Background()
-	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "assethub.db"))
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestStoreListCursorPagination(t *testing.T) {
 
 func TestStoreAIReviews(t *testing.T) {
 	ctx := context.Background()
-	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "assethub.db"))
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestStoreAIReviews(t *testing.T) {
 
 func TestStoreAssetReviews(t *testing.T) {
 	ctx := context.Background()
-	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "assethub.db"))
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

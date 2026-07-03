@@ -34,7 +34,7 @@ go.work.sum
 .playwright-mcp/
 .omc/
 **/.omc/
-/assethub
+/filehub
 
 # Editor/IDE
 # .idea/

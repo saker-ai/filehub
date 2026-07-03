@@ -7,14 +7,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/saker-ai/assethub/pkg/config"
+	"github.com/saker-ai/filehub/pkg/config"
 	commonDiscovery "github.com/saker-ai/saker-common/discovery"
 )
 
 func startServiceDiscovery(ctx context.Context, logger *slog.Logger, cfg config.Config) *commonDiscovery.MultiRegistration {
-	reg, err := commonDiscovery.StartFromEnv(ctx, serviceInstance("assethub", "AssetHub", cfg.Addr, "/assethub", "/assets", "assethub"), commonDiscovery.EnvOptions{})
+	reg, err := commonDiscovery.StartFromEnv(ctx, serviceInstance("filehub", "FileHub", cfg.Addr, "/filehub", "/assets", "filehub"), commonDiscovery.EnvOptions{})
 	if err != nil {
-		logger.WarnContext(ctx, "assethub discovery registration failed", "error", err)
+		logger.WarnContext(ctx, "filehub discovery registration failed", "error", err)
 		return nil
 	}
 	return reg

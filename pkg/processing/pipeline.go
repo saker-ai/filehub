@@ -17,8 +17,8 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/rwcarlsen/goexif/exif"
-	"github.com/saker-ai/assethub/pkg/storage"
-	"github.com/saker-ai/assethub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/storage"
+	"github.com/saker-ai/filehub/pkg/store"
 )
 
 type Pipeline struct {
@@ -205,7 +205,7 @@ func (p *Pipeline) generateVideoThumbnail(ctx context.Context, assetID, filename
 		return err
 	}
 	defer cleanupInput()
-	output, err := os.CreateTemp("", "assethub-frame-*."+format)
+	output, err := os.CreateTemp("", "filehub-frame-*."+format)
 	if err != nil {
 		return err
 	}

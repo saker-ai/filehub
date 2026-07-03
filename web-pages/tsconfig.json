@@ -16,8 +16,8 @@
     "paths": {
       "@saker/web-shared": ["../../web-shared/src/index.ts"],
       "@saker/web-shared/*": ["../../web-shared/src/*"],
-      "@saker/assethub-client": ["../web-client/src/index.ts"],
-      "@saker/assethub-client/*": ["../web-client/src/*"]
+      "@saker/filehub-client": ["../web-client/src/index.ts"],
+      "@saker/filehub-client/*": ["../web-client/src/*"]
     },
     "resolveJsonModule": true,
     "isolatedModules": true,

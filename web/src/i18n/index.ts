@@ -316,7 +316,7 @@ export const resources = {
 
 void i18n.use(initReactI18next).init({
   resources,
-  lng: localStorage.getItem('assethub_lang') || 'en',
+  lng: localStorage.getItem('filehub_lang') || 'en',
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
 })

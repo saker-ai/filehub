@@ -1,1 +1,1 @@
-export { AssetDetail } from '@saker/assethub-pages/asset-detail'
+export { AssetDetail } from '@saker/filehub-pages/asset-detail'
