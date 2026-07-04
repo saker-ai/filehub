@@ -52,9 +52,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	h := newHandler(deps)
 	r := gin.New()
+	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.Use(gin.Recovery(), CORSMiddleware(deps.Config.CORSOrigins), RequestID(), RateLimit(deps.Config.RatePerSec, deps.Config.RateBurst), MetricsMiddleware(deps.Metrics), RequestLogger(nil), Auth(deps.Config))
 	RegisterHumaDocs(r)
-	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	if deps.Config.MetricsEnabled {
 		path := deps.Config.MetricsPath
 		if path == "" {
@@ -411,9 +411,6 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 	if onDuplicate == "reject" {
 		asset.DedupeKey = &checksum
 	}
-	if openAIFile {
-		asset.Status = "uploaded"
-	}
 	if err := h.deps.Assets.Create(c.Request.Context(), asset); err != nil {
 		if errors.Is(err, store.ErrConflict) && onDuplicate == "reject" {
 			_ = h.deps.Storage.Delete(c.Request.Context(), storageKey)
@@ -587,6 +584,8 @@ func (h handler) list(c *gin.Context, files bool) {
 	filter := parseFilter(c)
 	if files {
 		filter.IDPrefix = "file-"
+	} else {
+		filter.IDPrefix = "asset-"
 	}
 	items, hasMore, err := h.deps.Assets.List(c.Request.Context(), Tenant(c), filter)
 	if err != nil {
@@ -608,7 +607,12 @@ func (h handler) getFile(c *gin.Context)  { h.get(c, true) }
 func (h handler) getAsset(c *gin.Context) { h.get(c, false) }
 
 func (h handler) get(c *gin.Context, file bool) {
-	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
+	id := c.Param("id")
+	if file && !strings.HasPrefix(id, "file-") {
+		writeError(c, http.StatusNotFound, "not_found", "resource not found")
+		return
+	}
+	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id)
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -620,7 +624,12 @@ func (h handler) deleteFile(c *gin.Context)  { h.delete(c, true) }
 func (h handler) deleteAsset(c *gin.Context) { h.delete(c, false) }
 
 func (h handler) delete(c *gin.Context, file bool) {
-	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
+	id := c.Param("id")
+	if file && !strings.HasPrefix(id, "file-") {
+		writeError(c, http.StatusNotFound, "not_found", "resource not found")
+		return
+	}
+	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id)
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -1756,10 +1765,6 @@ func parseMetadataQueryValue(raw string) any {
 }
 
 func assetResponse(a *store.Asset, file bool) gin.H {
-	tags := make([]string, 0, len(a.Tags))
-	for _, t := range a.Tags {
-		tags = append(tags, t.Name)
-	}
 	obj := "asset"
 	if file {
 		obj = "file"
@@ -1770,6 +1775,10 @@ func assetResponse(a *store.Asset, file bool) gin.H {
 		"assetId": a.ID, "file_id": a.ID, "content_type": a.ContentType, "mime_type": a.ContentType,
 	}
 	if !file {
+		tags := make([]string, 0, len(a.Tags))
+		for _, t := range a.Tags {
+			tags = append(tags, t.Name)
+		}
 		out["source"] = a.Source
 		out["checksum"] = a.Checksum
 		out["tags"] = tags
