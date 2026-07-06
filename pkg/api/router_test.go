@@ -920,7 +920,7 @@ func TestStaticAssetRoutesSupportGetAndHead(t *testing.T) {
 	}
 }
 
-func TestStaticIndexUsesRelativeAssetURLs(t *testing.T) {
+func TestStaticIndexUsesBasePathAssetURLs(t *testing.T) {
 	ts := newTestServer(t)
 
 	rec := ts.request(t, http.MethodGet, "/", nil, nil)
@@ -933,8 +933,8 @@ func TestStaticIndexUsesRelativeAssetURLs(t *testing.T) {
 			t.Fatalf("index.html contains non-relocatable asset URL %q in:\n%s", marker, body)
 		}
 	}
-	if !strings.Contains(body, `./assets/`) {
-		t.Fatalf("index.html does not contain relative asset URLs:\n%s", body)
+	if !strings.Contains(body, `/filehub/assets/`) {
+		t.Fatalf("index.html does not contain /filehub/ base path asset URLs:\n%s", body)
 	}
 }
 
