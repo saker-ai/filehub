@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -30,6 +31,8 @@ import (
 	"github.com/saker-ai/filehub/pkg/store"
 	"github.com/saker-ai/filehub/web"
 )
+
+const externalAssetSignedURLTTL = 15 * time.Minute
 
 type RouterDeps struct {
 	Config    config.Config
@@ -124,6 +127,11 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	v1.POST("/assets/:id/presign", h.presign)
 	v1.GET("/assets/:id/content", h.getContent)
 	v1.GET("/assets/:id/thumbnail", h.thumbnail)
+	v1.POST("/external/assets", h.createExternalAsset)
+	v1.PUT("/external/assets", h.putExternalAsset)
+	v1.GET("/external/assets/:id", h.getContent)
+	v1.HEAD("/external/assets/:id", h.headExternalAsset)
+	v1.POST("/external/assets/:id/presign", h.presign)
 	v1.GET("/dl/:id", h.signedDownload)
 	v1.POST("/uploads", h.createUpload)
 	v1.POST("/uploads/:id/presign", h.presignUpload)
@@ -312,7 +320,7 @@ func (h handler) createFile(c *gin.Context) {
 		return
 	}
 	defer h.releaseUpload()
-	h.createMultipart(c, "file-", true)
+	h.createMultipart(c, "file-", true, false)
 }
 
 func (h handler) createAsset(c *gin.Context) {
@@ -324,14 +332,70 @@ func (h handler) createAsset(c *gin.Context) {
 		h.createExternal(c)
 		return
 	}
-	h.createMultipart(c, "asset-", false)
+	h.createMultipart(c, "asset-", false, false)
 }
 
-func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile bool) {
+func (h handler) createExternalAsset(c *gin.Context) {
+	if !h.acquireUpload(c) {
+		return
+	}
+	defer h.releaseUpload()
+	h.createMultipart(c, "asset-", false, true)
+}
+
+func (h handler) putExternalAsset(c *gin.Context) {
+	if !h.acquireUpload(c) {
+		return
+	}
+	defer h.releaseUpload()
+	if h.tooLarge(c) {
+		return
+	}
+
+	filename := strings.TrimSpace(c.GetHeader("X-Filename"))
+	if filename == "" {
+		filename = "asset"
+	}
+	contentType := strings.TrimSpace(c.GetHeader("Content-Type"))
+	originalBody := c.Request.Body
+	reader, writer := io.Pipe()
+	multipartWriter := multipart.NewWriter(writer)
+	go func() {
+		if err := multipartWriter.WriteField("purpose", "general"); err != nil {
+			_ = writer.CloseWithError(err)
+			return
+		}
+		if contentType != "" {
+			if err := multipartWriter.WriteField("contentType", contentType); err != nil {
+				_ = writer.CloseWithError(err)
+				return
+			}
+		}
+		part, err := multipartWriter.CreateFormFile("file", filename)
+		if err != nil {
+			_ = writer.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, originalBody); err != nil {
+			_ = writer.CloseWithError(err)
+			return
+		}
+		_ = writer.CloseWithError(multipartWriter.Close())
+	}()
+	c.Request.Body = reader
+	c.Request.ContentLength = -1
+	c.Request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	h.createMultipart(c, "asset-", false, true)
+}
+
+func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile, externalAPI bool) {
 	if h.tooLarge(c) {
 		return
 	}
 	purpose := c.PostForm("purpose")
+	if purpose == "" && externalAPI {
+		purpose = "general"
+	}
 	if !validPurposes[purpose] {
 		writeError(c, http.StatusBadRequest, "invalid_purpose", "invalid purpose")
 		return
@@ -366,7 +430,11 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 			releaseQuota()
 		}
 	}()
-	onDuplicate := c.DefaultQuery("on_duplicate", "reject")
+	defaultDuplicateMode := "reject"
+	if externalAPI {
+		defaultDuplicateMode = "allow"
+	}
+	onDuplicate := c.DefaultQuery("on_duplicate", defaultDuplicateMode)
 	if openAIFile {
 		onDuplicate = "allow"
 	}
@@ -374,7 +442,11 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 		if existing, err := h.deps.Assets.FindByChecksum(c.Request.Context(), Tenant(c), checksum); err == nil {
 			if onDuplicate == "reuse" {
 				c.Set(assetIDKey, existing.ID)
-				c.JSON(http.StatusOK, assetResponse(existing, openAIFile))
+				if externalAPI {
+					c.JSON(http.StatusOK, h.externalAssetResponse(c, existing))
+				} else {
+					c.JSON(http.StatusOK, assetResponse(existing, openAIFile))
+				}
 				return
 			}
 			writeDuplicateError(c, existing.ID)
@@ -386,6 +458,11 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 	}
 	id := idPrefix + shortID()
 	contentType := header.Header.Get("Content-Type")
+	if requested := strings.TrimSpace(c.PostForm("contentType")); requested != "" {
+		contentType = requested
+	} else if requested := strings.TrimSpace(c.PostForm("content_type")); requested != "" {
+		contentType = requested
+	}
 	if contentType == "" || contentType == "application/octet-stream" {
 		contentType = http.DetectContentType(sniff)
 	}
@@ -430,6 +507,10 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile boo
 		h.deps.Pipeline.Enqueue(context.Background(), asset)
 	}
 	status := http.StatusOK
+	if externalAPI {
+		c.JSON(status, h.externalAssetResponse(c, asset))
+		return
+	}
 	c.JSON(status, assetResponse(asset, openAIFile))
 }
 
@@ -655,6 +736,22 @@ func (h handler) getContent(c *gin.Context) {
 		return
 	}
 	h.streamAsset(c, a)
+}
+
+func (h handler) headExternalAsset(c *gin.Context) {
+	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	if a.ContentType != "" {
+		c.Header("Content-Type", a.ContentType)
+	}
+	c.Header("Content-Length", strconv.FormatInt(a.Bytes, 10))
+	if a.Checksum != "" {
+		c.Header("ETag", `"`+a.Checksum+`"`)
+	}
+	c.Status(http.StatusOK)
 }
 
 func (h handler) streamAsset(c *gin.Context, a *store.Asset) {
@@ -1063,22 +1160,43 @@ func (h handler) presign(c *gin.Context) {
 		return
 	}
 	var req struct {
-		ExpiresIn string `json:"expires_in"`
+		ExpiresIn      string `json:"expires_in"`
+		ExpiresInCamel string `json:"expiresIn"`
 	}
 	_ = c.ShouldBindJSON(&req)
 	ttl := h.deps.Config.PresignTTL
-	if req.ExpiresIn != "" {
-		if parsed, err := time.ParseDuration(req.ExpiresIn); err == nil {
+	expiresIn := req.ExpiresIn
+	if expiresIn == "" {
+		expiresIn = req.ExpiresInCamel
+	}
+	if expiresIn != "" {
+		if parsed, err := time.ParseDuration(expiresIn); err == nil {
 			ttl = parsed
 		}
 	}
+	url, expires := h.signedAssetURL(c, a, ttl)
+	c.JSON(http.StatusOK, gin.H{"url": url, "expires_at": expires.Unix(), "expiresAt": expires.Unix()})
+}
+
+func (h handler) externalAssetResponse(c *gin.Context, a *store.Asset) gin.H {
+	url, expires := h.signedAssetURL(c, a, externalAssetSignedURLTTL)
+	return gin.H{
+		"id":          a.ID,
+		"url":         url,
+		"contentType": a.ContentType,
+		"size":        a.Bytes,
+		"expiresAt":   expires.Unix(),
+	}
+}
+
+func (h handler) signedAssetURL(c *gin.Context, a *store.Asset, ttl time.Duration) (string, time.Time) {
 	expires := time.Now().Add(ttl)
 	url, err := h.deps.Storage.PresignObjectURL(c.Request.Context(), a.StorageKey, ttl)
-	if err != nil {
-		url = h.deps.Storage.LocalPresignURL(Tenant(c), a.ID, expires)
-		url = forwardedPresignURL(c, url)
+	if err == nil {
+		return url, expires
 	}
-	c.JSON(http.StatusOK, gin.H{"url": url, "expires_at": expires.Unix()})
+	url = h.deps.Storage.LocalPresignURL(Tenant(c), a.ID, expires)
+	return forwardedPresignURL(c, url), expires
 }
 
 func forwardedPresignURL(c *gin.Context, raw string) string {

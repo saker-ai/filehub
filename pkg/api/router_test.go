@@ -135,6 +135,86 @@ func TestRouterAssetLifecycle(t *testing.T) {
 	}
 }
 
+func TestRouterExternalAssetAPICompatibility(t *testing.T) {
+	ts := newTestServer(t)
+
+	uploaded := ts.uploadAssetWithContentType(
+		t,
+		"/v1/external/assets",
+		"compat.txt",
+		"text/plain",
+		[]byte("compatible asset"),
+		nil,
+	)
+	id, _ := uploaded["id"].(string)
+	if id == "" {
+		t.Fatalf("upload response missing id: %#v", uploaded)
+	}
+	if uploaded["contentType"] != "text/plain" {
+		t.Fatalf("contentType = %#v, want text/plain", uploaded["contentType"])
+	}
+	if uploaded["size"] != float64(len("compatible asset")) {
+		t.Fatalf("size = %#v, want %d", uploaded["size"], len("compatible asset"))
+	}
+	signedURL, _ := uploaded["url"].(string)
+	if signedURL == "" {
+		t.Fatalf("upload response missing signed url: %#v", uploaded)
+	}
+	signedPath := strings.TrimPrefix(signedURL, "http://127.0.0.1:17040")
+	signed := ts.request(t, http.MethodGet, signedPath, nil, nil)
+	if signed.Code != http.StatusOK || signed.Body.String() != "compatible asset" {
+		t.Fatalf("signed download status=%d body=%q", signed.Code, signed.Body.String())
+	}
+
+	content := ts.request(t, http.MethodGet, "/v1/external/assets/"+id, nil, nil)
+	if content.Code != http.StatusOK || content.Body.String() != "compatible asset" {
+		t.Fatalf("compat get status=%d body=%q", content.Code, content.Body.String())
+	}
+	if got := content.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+		t.Fatalf("compat get Content-Type = %q", got)
+	}
+
+	head := ts.request(t, http.MethodHead, "/v1/external/assets/"+id, nil, nil)
+	if head.Code != http.StatusOK {
+		t.Fatalf("compat head status=%d body=%s", head.Code, head.Body.String())
+	}
+	missing := ts.request(t, http.MethodHead, "/v1/external/assets/missing", nil, nil)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("compat missing head status=%d, want 404", missing.Code)
+	}
+
+	presign := ts.request(t, http.MethodPost, "/v1/external/assets/"+id+"/presign", bytes.NewBufferString(`{"expiresIn":"5m"}`), map[string]string{"Content-Type": "application/json"})
+	if presign.Code != http.StatusOK {
+		t.Fatalf("compat presign status=%d body=%s", presign.Code, presign.Body.String())
+	}
+	var presigned struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(presign.Body.Bytes(), &presigned); err != nil {
+		t.Fatalf("decode compat presign: %v", err)
+	}
+	if presigned.URL == "" {
+		t.Fatal("compat presign returned empty url")
+	}
+
+	put := ts.request(t, http.MethodPut, "/v1/external/assets", bytes.NewBufferString("raw upload"), map[string]string{
+		"Content-Type": "text/plain",
+		"X-Filename":   "raw.txt",
+	})
+	if put.Code != http.StatusOK {
+		t.Fatalf("compat put status=%d body=%s", put.Code, put.Body.String())
+	}
+	var putResult map[string]any
+	if err := json.Unmarshal(put.Body.Bytes(), &putResult); err != nil {
+		t.Fatalf("decode compat put: %v", err)
+	}
+	putID, _ := putResult["id"].(string)
+	putContent := ts.request(t, http.MethodGet, "/v1/external/assets/"+putID, nil, nil)
+	if putContent.Code != http.StatusOK || putContent.Body.String() != "raw upload" {
+		t.Fatalf("compat put content status=%d body=%q", putContent.Code, putContent.Body.String())
+	}
+}
+
 func TestRouterListAssetsFiltersByMetadata(t *testing.T) {
 	ts := newTestServer(t)
 

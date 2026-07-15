@@ -86,6 +86,19 @@ curl -X POST 'http://127.0.0.1:17040/v1/assets/{id}/presign' \
 
 Set a non-default `FILEHUB_PRESIGN_SECRET` before exposing fallback signed URLs outside a trusted local environment.
 
+## External asset API compatibility
+
+FileHub exposes the generic external asset contract at `/v1/external`. Point clients such as Saker at this base URL:
+
+```text
+X-Saker-Storage-Uri: https://filehub.example.com/v1/external
+```
+
+The compatibility endpoints are `POST|PUT /assets`, `GET|HEAD /assets/{id}`, and
+`POST /assets/{id}/presign`. Upload responses use the generic camel-case fields
+`id`, `url`, `contentType`, `size`, and `expiresAt`; `url` is a short-lived signed
+FileHub download URL. FileHub's richer metadata API remains under `/v1/assets`.
+
 ## Web UI
 
 The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them.
