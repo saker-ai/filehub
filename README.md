@@ -102,7 +102,12 @@ FileHub exposes the generic external asset contract at `/v1/external`. Point cli
 
 ```text
 X-Saker-Storage-Uri: https://filehub.example.com/v1/external
+X-Saker-Storage-Uri: https://filehub.example.com/v1/external?upload_mode=direct&json_naming=snake_case
 ```
+
+The first form keeps proxy upload as the compatible default. Use the second
+form only with an S3 or OSS backend when Saker should upload directly to the
+provider's public endpoint.
 
 The compatibility endpoints are `POST|PUT /assets`, `GET|HEAD /assets/{id}`, and
 `POST /assets/{id}/presign`. Upload responses use the generic camel-case fields
