@@ -66,14 +66,15 @@ type InternalAuthConfig struct {
 }
 
 type StorageConfig struct {
-	Backend     string `json:"backend" yaml:"backend"`
-	DataDir     string `json:"data_dir" yaml:"data_dir"`
-	Prefix      string `json:"prefix" yaml:"prefix"`
-	S3Endpoint  string `json:"s3_endpoint" yaml:"s3_endpoint"`
-	S3Region    string `json:"s3_region" yaml:"s3_region"`
-	S3Bucket    string `json:"s3_bucket" yaml:"s3_bucket"`
-	S3AccessKey string `json:"s3_access_key" yaml:"s3_access_key"`
-	S3SecretKey string `json:"s3_secret_key" yaml:"s3_secret_key"`
+	Backend          string `json:"backend" yaml:"backend"`
+	DataDir          string `json:"data_dir" yaml:"data_dir"`
+	Prefix           string `json:"prefix" yaml:"prefix"`
+	S3Endpoint       string `json:"s3_endpoint" yaml:"s3_endpoint"`
+	S3PublicEndpoint string `json:"s3_public_endpoint" yaml:"s3_public_endpoint"`
+	S3Region         string `json:"s3_region" yaml:"s3_region"`
+	S3Bucket         string `json:"s3_bucket" yaml:"s3_bucket"`
+	S3AccessKey      string `json:"s3_access_key" yaml:"s3_access_key"`
+	S3SecretKey      string `json:"s3_secret_key" yaml:"s3_secret_key"`
 }
 
 func Load(path string) (Config, error) {
@@ -230,11 +231,13 @@ func applyEnv(c *Config) {
 	setString("FILEHUB_STORAGE_DIR", &c.Storage.DataDir)
 	setString("FILEHUB_STORAGE_PREFIX", &c.Storage.Prefix)
 	setString("FILEHUB_S3_ENDPOINT", &c.Storage.S3Endpoint)
+	setString("FILEHUB_S3_PUBLIC_ENDPOINT", &c.Storage.S3PublicEndpoint)
 	setString("FILEHUB_S3_REGION", &c.Storage.S3Region)
 	setString("FILEHUB_S3_BUCKET", &c.Storage.S3Bucket)
 	setString("FILEHUB_S3_ACCESS_KEY", &c.Storage.S3AccessKey)
 	setString("FILEHUB_S3_SECRET_KEY", &c.Storage.S3SecretKey)
 	setStringIfEmpty("FILEHUB_OSS_ENDPOINT", &c.Storage.S3Endpoint)
+	setStringIfEmpty("FILEHUB_OSS_PUBLIC_ENDPOINT", &c.Storage.S3PublicEndpoint)
 	setStringIfEmpty("FILEHUB_OSS_REGION", &c.Storage.S3Region)
 	setStringIfEmpty("FILEHUB_OSS_BUCKET", &c.Storage.S3Bucket)
 	setStringIfEmpty("FILEHUB_OSS_ACCESS_KEY", &c.Storage.S3AccessKey)

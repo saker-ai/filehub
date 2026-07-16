@@ -96,7 +96,7 @@ type docPresignInput struct {
 
 type docPresignOutput struct {
 	Body struct {
-		URL       string `json:"url"`
+		URL       string `json:"url" doc:"Provider-native public signed URL for S3/OSS; FileHub signed URL for local storage"`
 		ExpiresAt int64  `json:"expires_at"`
 	}
 }
@@ -104,7 +104,7 @@ type docPresignOutput struct {
 type docExternalAssetOutput struct {
 	Body struct {
 		ID          string `json:"id"`
-		URL         string `json:"url" doc:"Short-lived signed download URL"`
+		URL         string `json:"url" doc:"Provider-native public signed URL for S3/OSS; FileHub signed URL for local storage"`
 		ContentType string `json:"contentType"`
 		Size        int64  `json:"size"`
 		ExpiresAt   int64  `json:"expiresAt"`
@@ -114,13 +114,13 @@ type docExternalAssetOutput struct {
 type docExternalPresignInput struct {
 	ID   string `path:"id" doc:"Asset ID" required:"true"`
 	Body struct {
-		ExpiresIn string `json:"expiresIn" doc:"Signed URL TTL" example:"15m"`
+		ExpiresIn string `json:"expiresIn" doc:"Signed URL TTL" example:"168h"`
 	}
 }
 
 type docExternalPresignOutput struct {
 	Body struct {
-		URL       string `json:"url"`
+		URL       string `json:"url" doc:"Provider-native public signed URL for S3/OSS; FileHub signed URL for local storage"`
 		ExpiresAt int64  `json:"expiresAt"`
 	}
 }
@@ -320,7 +320,7 @@ func registerOpenAPIDocs(api huma.API) {
 	registerDoc[struct{}, docExternalAssetOutput](api, http.MethodPut, "/v1/external/assets", "external-put-asset", "External Asset API", "Upload an asset as a byte stream", security)
 	registerDoc[docIDInput, struct{}](api, http.MethodGet, "/v1/external/assets/{id}", "external-download-asset", "External Asset API", "Download asset content", security)
 	registerDoc[docIDInput, struct{}](api, http.MethodHead, "/v1/external/assets/{id}", "external-head-asset", "External Asset API", "Check whether an asset exists", security)
-	registerDoc[docExternalPresignInput, docExternalPresignOutput](api, http.MethodPost, "/v1/external/assets/{id}/presign", "external-presign-asset", "External Asset API", "Create a short-lived signed download URL", security)
+	registerDoc[docExternalPresignInput, docExternalPresignOutput](api, http.MethodPost, "/v1/external/assets/{id}/presign", "external-presign-asset", "External Asset API", "Create a signed download URL", security)
 
 	registerDoc[docSignedDownloadInput, struct{}](api, http.MethodGet, "/v1/dl/{id}", "signed-download", "Downloads", "Download via signed URL", nil)
 	registerDoc[docCreateUploadInput, docCreateUploadOutput](api, http.MethodPost, "/v1/uploads", "create-upload", "Uploads", "Create upload session", security)

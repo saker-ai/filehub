@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,6 +165,11 @@ func TestRouterExternalAssetAPICompatibility(t *testing.T) {
 	signed := ts.request(t, http.MethodGet, signedPath, nil, nil)
 	if signed.Code != http.StatusOK || signed.Body.String() != "compatible asset" {
 		t.Fatalf("signed download status=%d body=%q", signed.Code, signed.Body.String())
+	}
+	expiresAt, _ := uploaded["expiresAt"].(float64)
+	remaining := time.Until(time.Unix(int64(expiresAt), 0))
+	if remaining < 7*24*time.Hour-5*time.Second || remaining > 7*24*time.Hour+5*time.Second {
+		t.Fatalf("upload signed URL TTL = %s, want 7d", remaining)
 	}
 
 	content := ts.request(t, http.MethodGet, "/v1/external/assets/"+id, nil, nil)
@@ -479,6 +485,91 @@ func TestRouterNativeS3MultipartUpload(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("native presign GET status = %d", resp.StatusCode)
+	}
+}
+
+func TestRouterNativeS3ExternalUploadUsesPublicEndpointAndDefaultTTL(t *testing.T) {
+	s3fake := newFakeS3Server(t)
+	cfg := config.Defaults()
+	cfg.Storage.Backend = config.BackendS3
+	cfg.Storage.S3Endpoint = s3fake.URL
+	cfg.Storage.S3PublicEndpoint = "https://assets.example.com"
+	cfg.Storage.S3Bucket = "test-bucket"
+	cfg.Storage.S3Region = "us-east-1"
+	cfg.Storage.S3AccessKey = "test-key"
+	cfg.Storage.S3SecretKey = "test-secret"
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	ts := newTestServerWithConfig(t, cfg)
+
+	uploaded := ts.uploadAsset(t, "/v1/external/assets", "public.txt", []byte("public asset"), nil)
+	rawURL, _ := uploaded["url"].(string)
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse presign URL: %v", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host != "assets.example.com" {
+		t.Fatalf("presign URL = %q, want public endpoint", rawURL)
+	}
+	if got := parsed.Query().Get("X-Amz-Expires"); got != "604800" {
+		t.Fatalf("X-Amz-Expires = %q, want 604800", got)
+	}
+	expiresAt, _ := uploaded["expiresAt"].(float64)
+	remaining := time.Until(time.Unix(int64(expiresAt), 0))
+	if remaining < 7*24*time.Hour-5*time.Second || remaining > 7*24*time.Hour+5*time.Second {
+		t.Fatalf("presign TTL = %s, want 7d", remaining)
+	}
+
+	assetID, _ := uploaded["id"].(string)
+	tests := []struct {
+		name        string
+		path        string
+		body        io.Reader
+		wantExpires string
+		wantTTL     time.Duration
+	}{
+		{
+			name:        "asset API default TTL",
+			path:        "/v1/assets/" + assetID + "/presign",
+			wantExpires: "604800",
+			wantTTL:     7 * 24 * time.Hour,
+		},
+		{
+			name:        "external API explicit TTL",
+			path:        "/v1/external/assets/" + assetID + "/presign",
+			body:        bytes.NewBufferString(`{"expiresIn":"1h"}`),
+			wantExpires: "3600",
+			wantTTL:     time.Hour,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := ts.request(t, http.MethodPost, tt.path, tt.body, map[string]string{"Content-Type": "application/json"})
+			if response.Code != http.StatusOK {
+				t.Fatalf("presign status=%d body=%s", response.Code, response.Body.String())
+			}
+			var signed struct {
+				URL       string `json:"url"`
+				ExpiresAt int64  `json:"expires_at"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &signed); err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(signed.URL)
+			if err != nil {
+				t.Fatalf("parse presign URL: %v", err)
+			}
+			if parsed.Scheme != "https" || parsed.Host != "assets.example.com" {
+				t.Fatalf("presign URL = %q, want public endpoint", signed.URL)
+			}
+			if got := parsed.Query().Get("X-Amz-Expires"); got != tt.wantExpires {
+				t.Fatalf("X-Amz-Expires = %q, want %s", got, tt.wantExpires)
+			}
+			remaining := time.Until(time.Unix(signed.ExpiresAt, 0))
+			if remaining < tt.wantTTL-5*time.Second || remaining > tt.wantTTL+5*time.Second {
+				t.Fatalf("presign TTL = %s, want %s", remaining, tt.wantTTL)
+			}
+		})
 	}
 }
 

@@ -37,6 +37,7 @@ type Store struct {
 	baseURL       string
 	s3Bucket      string
 	s3Client      *s3.Client
+	s3Presign     *s3.PresignClient
 }
 
 type MultipartPart struct {
@@ -79,6 +80,14 @@ func New(ctx context.Context, cfg config.Config) (*Store, error) {
 			return nil, err
 		}
 		out.s3Client = client
+		presignClient := client
+		if cfg.Storage.S3PublicEndpoint != "" {
+			presignClient, err = newS3ClientWithEndpoint(ctx, cfg.Storage, cfg.Storage.S3PublicEndpoint)
+			if err != nil {
+				return nil, err
+			}
+		}
+		out.s3Presign = s3.NewPresignClient(presignClient)
 	}
 	return out, nil
 }
@@ -120,6 +129,10 @@ func buildS2Config(cfg config.StorageConfig) (s2.Config, error) {
 }
 
 func newS3Client(ctx context.Context, cfg config.StorageConfig) (*s3.Client, error) {
+	return newS3ClientWithEndpoint(ctx, cfg, cfg.S3Endpoint)
+}
+
+func newS3ClientWithEndpoint(ctx context.Context, cfg config.StorageConfig, endpoint string) (*s3.Client, error) {
 	var opts []func(*awsconfig.LoadOptions) error
 	if cfg.S3Region != "" {
 		opts = append(opts, awsconfig.WithRegion(cfg.S3Region))
@@ -132,9 +145,9 @@ func newS3Client(ctx context.Context, cfg config.StorageConfig) (*s3.Client, err
 		return nil, fmt.Errorf("load s3 config: %w", err)
 	}
 	var s3Opts []func(*s3.Options)
-	if cfg.S3Endpoint != "" {
+	if endpoint != "" {
 		s3Opts = append(s3Opts, func(o *s3.Options) {
-			o.BaseEndpoint = aws.String(cfg.S3Endpoint)
+			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = cfg.Backend != config.BackendOSS
 			if cfg.Backend == config.BackendOSS {
 				o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
@@ -316,7 +329,7 @@ func (s *Store) PresignObjectURL(ctx context.Context, key string, ttl time.Durat
 	if !s.NativeMultipartSupported() {
 		return "", fmt.Errorf("native presign unavailable for backend %s", s.backend)
 	}
-	out, err := s3.NewPresignClient(s.s3Client).PresignGetObject(ctx, &s3.GetObjectInput{
+	out, err := s.s3Presign.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.s3Bucket),
 		Key:    aws.String(s.objectKey(key)),
 	}, s3.WithPresignExpires(ttl))
@@ -337,7 +350,7 @@ func (s *Store) PresignPutObject(ctx context.Context, key, contentType string, t
 	if contentType != "" {
 		input.ContentType = aws.String(contentType)
 	}
-	out, err := s3.NewPresignClient(s.s3Client).PresignPutObject(ctx, input, s3.WithPresignExpires(ttl))
+	out, err := s.s3Presign.PresignPutObject(ctx, input, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return nil, fmt.Errorf("presign put object: %w", err)
 	}
@@ -348,7 +361,7 @@ func (s *Store) PresignUploadPart(ctx context.Context, key, uploadID string, par
 	if !s.NativeMultipartSupported() {
 		return nil, fmt.Errorf("native upload presign unavailable for backend %s", s.backend)
 	}
-	out, err := s3.NewPresignClient(s.s3Client).PresignUploadPart(ctx, &s3.UploadPartInput{
+	out, err := s.s3Presign.PresignUploadPart(ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(s.s3Bucket),
 		Key:        aws.String(s.objectKey(key)),
 		UploadId:   aws.String(uploadID),

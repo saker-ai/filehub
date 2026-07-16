@@ -32,8 +32,6 @@ import (
 	"github.com/saker-ai/filehub/web"
 )
 
-const externalAssetSignedURLTTL = 15 * time.Minute
-
 type RouterDeps struct {
 	Config    config.Config
 	Assets    store.AssetRepo
@@ -1179,7 +1177,7 @@ func (h handler) presign(c *gin.Context) {
 }
 
 func (h handler) externalAssetResponse(c *gin.Context, a *store.Asset) gin.H {
-	url, expires := h.signedAssetURL(c, a, externalAssetSignedURLTTL)
+	url, expires := h.signedAssetURL(c, a, h.deps.Config.PresignTTL)
 	return gin.H{
 		"id":          a.ID,
 		"url":         url,

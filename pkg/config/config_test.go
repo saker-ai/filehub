@@ -95,6 +95,7 @@ func TestLoadRejectsEnabledAPIKeyAuthWithoutKeys(t *testing.T) {
 func TestLoadOSSEnvAliases(t *testing.T) {
 	t.Setenv("FILEHUB_STORAGE_BACKEND", BackendOSS)
 	t.Setenv("FILEHUB_OSS_ENDPOINT", "https://oss.example.com")
+	t.Setenv("FILEHUB_OSS_PUBLIC_ENDPOINT", "https://assets.example.com")
 	t.Setenv("FILEHUB_OSS_REGION", "cn-hangzhou")
 	t.Setenv("FILEHUB_OSS_BUCKET", "assets")
 	t.Setenv("FILEHUB_OSS_ACCESS_KEY", "ak")
@@ -108,6 +109,7 @@ func TestLoadOSSEnvAliases(t *testing.T) {
 		t.Fatalf("backend = %q", cfg.Storage.Backend)
 	}
 	if cfg.Storage.S3Endpoint != "https://oss.example.com" ||
+		cfg.Storage.S3PublicEndpoint != "https://assets.example.com" ||
 		cfg.Storage.S3Region != "cn-hangzhou" ||
 		cfg.Storage.S3Bucket != "assets" ||
 		cfg.Storage.S3AccessKey != "ak" ||
@@ -118,7 +120,9 @@ func TestLoadOSSEnvAliases(t *testing.T) {
 
 func TestLoadS3EnvTakesPrecedenceOverOSSAliases(t *testing.T) {
 	t.Setenv("FILEHUB_S3_ENDPOINT", "https://s3.example.com")
+	t.Setenv("FILEHUB_S3_PUBLIC_ENDPOINT", "https://s3-public.example.com")
 	t.Setenv("FILEHUB_OSS_ENDPOINT", "https://oss.example.com")
+	t.Setenv("FILEHUB_OSS_PUBLIC_ENDPOINT", "https://oss-public.example.com")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -126,5 +130,8 @@ func TestLoadS3EnvTakesPrecedenceOverOSSAliases(t *testing.T) {
 	}
 	if cfg.Storage.S3Endpoint != "https://s3.example.com" {
 		t.Fatalf("s3 endpoint = %q", cfg.Storage.S3Endpoint)
+	}
+	if cfg.Storage.S3PublicEndpoint != "https://s3-public.example.com" {
+		t.Fatalf("s3 public endpoint = %q", cfg.Storage.S3PublicEndpoint)
 	}
 }

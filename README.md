@@ -33,7 +33,8 @@ OSS uses the `FILEHUB_OSS_*` names:
 
 ```bash
 FILEHUB_STORAGE_BACKEND=oss
-FILEHUB_OSS_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com
+FILEHUB_OSS_ENDPOINT=https://oss-cn-shanghai-internal.aliyuncs.com
+FILEHUB_OSS_PUBLIC_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com
 FILEHUB_OSS_REGION=cn-shanghai
 FILEHUB_OSS_BUCKET=your-bucket
 FILEHUB_OSS_ACCESS_KEY=your-access-key
@@ -45,6 +46,7 @@ S3 uses `FILEHUB_S3_*` names with the same shape:
 ```bash
 FILEHUB_STORAGE_BACKEND=s3
 FILEHUB_S3_ENDPOINT=http://127.0.0.1:9000
+FILEHUB_S3_PUBLIC_ENDPOINT=https://assets.example.com
 FILEHUB_S3_REGION=us-east-1
 FILEHUB_S3_BUCKET=filehub
 FILEHUB_S3_ACCESS_KEY=your-access-key
@@ -76,13 +78,21 @@ Pass `cursor=<next_cursor>` to fetch the next page. The web asset page uses thes
 
 ## Signed URLs
 
-The default signed URL TTL is `7d` (`168h`). Request a shorter TTL with:
+The default signed URL TTL is `7d` (`168h`). For S3 and OSS, FileHub returns
+provider-native signed URLs. When the service writes through an internal endpoint,
+set `FILEHUB_S3_PUBLIC_ENDPOINT` or `FILEHUB_OSS_PUBLIC_ENDPOINT` so returned URLs
+use the public endpoint while server-side storage traffic keeps using the internal one.
+Request a shorter TTL with:
 
 ```bash
 curl -X POST 'http://127.0.0.1:17040/v1/assets/{id}/presign' \
   -H 'Content-Type: application/json' \
   -d '{"expires_in":"5m"}'
 ```
+
+Both `POST /v1/assets/{id}/presign` and
+`POST /v1/external/assets/{id}/presign` use the same provider-native public
+endpoint and 7-day default.
 
 Set a non-default `FILEHUB_PRESIGN_SECRET` before exposing fallback signed URLs outside a trusted local environment.
 
@@ -96,8 +106,9 @@ X-Saker-Storage-Uri: https://filehub.example.com/v1/external
 
 The compatibility endpoints are `POST|PUT /assets`, `GET|HEAD /assets/{id}`, and
 `POST /assets/{id}/presign`. Upload responses use the generic camel-case fields
-`id`, `url`, `contentType`, `size`, and `expiresAt`; `url` is a short-lived signed
-FileHub download URL. FileHub's richer metadata API remains under `/v1/assets`.
+`id`, `url`, `contentType`, `size`, and `expiresAt`; `url` is a provider-native
+signed URL for S3/OSS and a FileHub signed URL for local storage. Its default
+validity is 7 days. FileHub's richer metadata API remains under `/v1/assets`.
 
 ## Web UI
 
