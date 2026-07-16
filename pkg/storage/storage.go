@@ -256,6 +256,64 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// Promote copies a staged object to its final key and removes the staged
+// object. It is idempotent when the source is gone and the target exists, so
+// upload completion can recover after a process crash.
+func (s *Store) Promote(ctx context.Context, sourceKey, targetKey string) error {
+	if sourceKey == "" || targetKey == "" {
+		return fmt.Errorf("promote object: source and target keys are required")
+	}
+	if sourceKey == targetKey {
+		return nil
+	}
+	if s.NativeMultipartSupported() {
+		sourceExists, err := s.Exists(ctx, sourceKey)
+		if err != nil {
+			return fmt.Errorf("promote object source: %w", err)
+		}
+		if !sourceExists {
+			targetExists, targetErr := s.Exists(ctx, targetKey)
+			if targetErr != nil {
+				return fmt.Errorf("promote object target: %w", targetErr)
+			}
+			if targetExists {
+				return nil
+			}
+			return fmt.Errorf("promote object source: %w", os.ErrNotExist)
+		}
+		copySource := url.PathEscape(path.Join(s.s3Bucket, s.objectKey(sourceKey)))
+		if _, err := s.s3Client.CopyObject(ctx, &s3.CopyObjectInput{
+			Bucket:     aws.String(s.s3Bucket),
+			CopySource: aws.String(copySource),
+			Key:        aws.String(s.objectKey(targetKey)),
+		}); err != nil {
+			return fmt.Errorf("promote object copy: %w", err)
+		}
+		if err := s.Delete(ctx, sourceKey); err != nil {
+			return fmt.Errorf("promote object cleanup: %w", err)
+		}
+		return nil
+	}
+
+	rc, err := s.Get(ctx, sourceKey)
+	if err != nil {
+		targetExists, targetErr := s.Exists(ctx, targetKey)
+		if targetErr == nil && targetExists {
+			return nil
+		}
+		return fmt.Errorf("promote object source: %w", errors.Join(err, targetErr))
+	}
+	_, putErr := s.Put(ctx, targetKey, rc)
+	closeErr := rc.Close()
+	if putErr != nil || closeErr != nil {
+		return fmt.Errorf("promote object copy: %w", errors.Join(putErr, closeErr))
+	}
+	if err := s.Delete(ctx, sourceKey); err != nil {
+		return fmt.Errorf("promote object cleanup: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) DeleteRecursive(ctx context.Context, prefix string) error {
 	if s.nativeObjectStore() {
 		keyPrefix := s.objectKey(prefix)
