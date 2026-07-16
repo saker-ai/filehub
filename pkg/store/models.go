@@ -268,6 +268,8 @@ type UploadRepo interface {
 	AddPart(ctx context.Context, part *UploadPart) error
 	ListParts(ctx context.Context, uploadID string) ([]*UploadPart, error)
 	UpdateSessionStatus(ctx context.Context, id, status string) error
+	ClaimSessionCompletion(ctx context.Context, id string, leaseUntil time.Time) (bool, error)
+	TransitionSessionStatus(ctx context.Context, id, from, to string) (bool, error)
 	DeleteSession(ctx context.Context, id string) error
 	ListExpiredSessions(ctx context.Context, now time.Time, limit int) ([]*UploadSession, error)
 }

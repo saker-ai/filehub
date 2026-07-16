@@ -130,7 +130,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	v1.GET("/external/assets/:id", h.getContent)
 	v1.HEAD("/external/assets/:id", h.headExternalAsset)
 	v1.POST("/external/assets/:id/presign", h.presign)
+	v1.GET("/external/capabilities", h.externalCapabilities)
 	v1.POST("/external/uploads", h.createExternalUpload)
+	v1.POST("/external/uploads/:id/parts/:part/presign", h.presignExternalUploadPart)
 	v1.POST("/external/uploads/:id/complete", h.completeExternalUpload)
 	v1.DELETE("/external/uploads/:id", h.cancelUpload)
 	v1.GET("/dl/:id", h.signedDownload)
@@ -1361,8 +1363,8 @@ func (h handler) createUpload(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "invalid upload mode")
 		return
 	}
-	if _, external := c.Get(externalUploadResponseKey); external && mode != uploadModeDirect {
-		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "external upload sessions support direct mode only")
+	if _, external := c.Get(externalUploadResponseKey); external && mode != uploadModeDirect && mode != uploadModeDirectMultipart {
+		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "external upload sessions support direct or direct_multipart mode only")
 		return
 	}
 	if mode != uploadModeProxy && !h.deps.Storage.NativeMultipartSupported() {
@@ -1410,6 +1412,9 @@ func (h handler) createUpload(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	if mode == uploadModeDirect || mode == uploadModeDirectMultipart {
+		h.deps.Metrics.RecordDirectUpload(mode, "created")
+	}
 	out := gin.H{"upload_id": sess.ID, "asset_id": sess.AssetID, "mode": sess.Mode, "chunk_size": sess.ChunkSize, "expires_at": sess.ExpiresAt.Unix()}
 	if mode == uploadModeDirect {
 		signed, err := h.presignUploadSession(c.Request.Context(), sess)
@@ -1443,6 +1448,19 @@ func (h handler) createUpload(c *gin.Context) {
 func (h handler) createExternalUpload(c *gin.Context) {
 	c.Set(externalUploadResponseKey, true)
 	h.createUpload(c)
+}
+
+func (h handler) externalCapabilities(c *gin.Context) {
+	direct := h.deps.Storage.NativeMultipartSupported()
+	c.JSON(http.StatusOK, gin.H{
+		"directUpload":          direct,
+		"directMultipartUpload": direct,
+		"maxUploadBytes":        h.deps.Config.MaxUploadBytes,
+		"defaultPartSize":       int64(10 * 1024 * 1024),
+		"minPartSize":           int64(5 * 1024 * 1024),
+		"maxPartSize":           int64(5 * 1024 * 1024 * 1024),
+		"checksumAlgorithms":    []string{"sha256"},
+	})
 }
 
 func compatibleStringFields(c *gin.Context, snake, camel *string, snakeName, camelName string) (string, bool) {
@@ -1513,7 +1531,7 @@ func (h handler) presignUploadPart(c *gin.Context) {
 		return
 	}
 	partNum, err := strconv.Atoi(c.Param("part"))
-	if err != nil || partNum <= 0 {
+	if err != nil || partNum <= 0 || partNum > 10000 {
 		writeError(c, http.StatusBadRequest, "invalid_request", "invalid part number")
 		return
 	}
@@ -1522,10 +1540,23 @@ func (h handler) presignUploadPart(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	out := gin.H{
 		"upload_id": sess.ID, "asset_id": sess.AssetID, "part": partNum, "method": http.MethodPut,
 		"url": signed.URL, "headers": signed.Header, "expires_at": signed.Expires.Unix(),
-	})
+	}
+	if _, external := c.Get(externalUploadResponseKey); external {
+		c.JSON(http.StatusOK, gin.H{
+			"uploadId": sess.ID, "assetId": sess.AssetID, "part": partNum, "method": http.MethodPut,
+			"url": signed.URL, "headers": signed.Header, "expiresAt": signed.Expires.Unix(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h handler) presignExternalUploadPart(c *gin.Context) {
+	c.Set(externalUploadResponseKey, true)
+	h.presignUploadPart(c)
 }
 
 func (h handler) presignUploadSession(ctx context.Context, sess *store.UploadSession) (*blob.PresignedRequest, error) {
@@ -1647,12 +1678,17 @@ func (h handler) completeUpload(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	if sess.Status == "completed" {
+		h.respondCompletedUpload(c, sess)
+		return
+	}
 	if uploadSessionExpired(sess) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "upload session expired")
 		return
 	}
-	if _, external := c.Get(externalUploadResponseKey); external && uploadSessionMode(sess) != uploadModeDirect {
-		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "external completion supports direct mode only")
+	mode := uploadSessionMode(sess)
+	if _, external := c.Get(externalUploadResponseKey); external && mode != uploadModeDirect && mode != uploadModeDirectMultipart {
+		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "external completion supports direct or direct_multipart mode only")
 		return
 	}
 	var req struct {
@@ -1660,17 +1696,48 @@ func (h handler) completeUpload(c *gin.Context) {
 			Part int    `json:"part"`
 			ETag string `json:"etag"`
 		} `json:"parts"`
+		Checksum string `json:"checksum"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	switch uploadSessionMode(sess) {
+	if _, external := c.Get(externalUploadResponseKey); external && (mode == uploadModeDirect || mode == uploadModeDirectMultipart) && strings.TrimSpace(req.Checksum) == "" {
+		writeError(c, http.StatusBadRequest, "checksum_required", "external direct upload completion requires a sha256 checksum")
+		return
+	}
+	if mode == uploadModeDirect || mode == uploadModeDirectMultipart {
+		leaseUntil := sess.ExpiresAt
+		if minimumLease := time.Now().Add(time.Hour); leaseUntil.Before(minimumLease) {
+			leaseUntil = minimumLease
+		}
+		claimed, err := h.deps.Uploads.ClaimSessionCompletion(c.Request.Context(), sess.ID, leaseUntil)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		if !claimed {
+			latest, reloadErr := h.deps.Uploads.GetSession(c.Request.Context(), Tenant(c), sess.ID)
+			if reloadErr == nil && latest.Status == "completed" {
+				h.respondCompletedUpload(c, latest)
+				return
+			}
+			writeError(c, http.StatusConflict, "upload_completing", "upload completion is already in progress")
+			return
+		}
+		defer func() {
+			reverted, _ := h.deps.Uploads.TransitionSessionStatus(context.WithoutCancel(c.Request.Context()), sess.ID, "completing", "pending")
+			if reverted {
+				h.deps.Metrics.RecordDirectUpload(mode, "failed")
+			}
+		}()
+	}
+	switch mode {
 	case uploadModeDirect:
-		h.completeDirectObject(c, sess)
+		h.completeDirectObject(c, sess, req.Checksum)
 		return
 	case uploadModeDirectMultipart:
-		h.completeDirectMultipart(c, sess, req.Parts)
+		h.completeDirectMultipart(c, sess, req.Parts, req.Checksum)
 		return
 	}
 	parts, err := h.deps.Uploads.ListParts(c.Request.Context(), sess.ID)
@@ -1815,19 +1882,19 @@ func (h handler) completeExternalUpload(c *gin.Context) {
 	h.completeUpload(c)
 }
 
-func (h handler) completeDirectObject(c *gin.Context, sess *store.UploadSession) {
+func (h handler) completeDirectObject(c *gin.Context, sess *store.UploadSession, checksum string) {
 	info, err := h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	h.completeUploadedSession(c, sess, info)
+	h.completeUploadedSession(c, sess, info, checksum)
 }
 
 func (h handler) completeDirectMultipart(c *gin.Context, sess *store.UploadSession, rawParts []struct {
 	Part int    `json:"part"`
 	ETag string `json:"etag"`
-}) {
+}, checksum string) {
 	if sess.ProviderUploadID == "" {
 		writeError(c, http.StatusBadRequest, "invalid_request", "missing provider upload id")
 		return
@@ -1836,28 +1903,41 @@ func (h handler) completeDirectMultipart(c *gin.Context, sess *store.UploadSessi
 		writeError(c, http.StatusBadRequest, "invalid_request", "parts are required")
 		return
 	}
+	if len(rawParts) > 10000 {
+		writeError(c, http.StatusBadRequest, "invalid_request", "parts limit is 10000")
+		return
+	}
 	nativeParts := make([]blob.MultipartPart, 0, len(rawParts))
+	previousPart := 0
 	for _, p := range rawParts {
 		etag := strings.Trim(strings.TrimSpace(p.ETag), `"`)
-		if p.Part <= 0 || etag == "" {
-			writeError(c, http.StatusBadRequest, "invalid_request", "part and etag are required")
+		if p.Part <= previousPart || p.Part > 10000 || etag == "" {
+			writeError(c, http.StatusBadRequest, "invalid_request", "parts must be unique, ordered, and between 1 and 10000")
 			return
 		}
+		previousPart = p.Part
 		nativeParts = append(nativeParts, blob.MultipartPart{PartNum: p.Part, ETag: etag})
 	}
-	if err := h.deps.Storage.CompleteMultipartUpload(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID, nativeParts); err != nil {
-		writeErr(c, err)
+	info, headErr := h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
+	if headErr != nil && !errors.Is(headErr, os.ErrNotExist) {
+		writeErr(c, headErr)
 		return
 	}
-	info, err := h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
-	if err != nil {
-		writeErr(c, err)
+	if errors.Is(headErr, os.ErrNotExist) {
+		if err := h.deps.Storage.CompleteMultipartUpload(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID, nativeParts); err != nil {
+			writeErr(c, err)
+			return
+		}
+		info, headErr = h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
+	}
+	if headErr != nil {
+		writeErr(c, headErr)
 		return
 	}
-	h.completeUploadedSession(c, sess, info)
+	h.completeUploadedSession(c, sess, info, checksum)
 }
 
-func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSession, info *blob.ObjectInfo) {
+func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSession, info *blob.ObjectInfo, checksum string) {
 	if info == nil {
 		writeError(c, http.StatusBadRequest, "invalid_request", "uploaded object not found")
 		return
@@ -1868,6 +1948,25 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 	}
 	if info.Bytes > h.deps.Config.MaxUploadBytes {
 		writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
+		return
+	}
+	checksum, ok := h.verifyDirectChecksum(c, sess, checksum)
+	if !ok {
+		return
+	}
+	if existing, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), sess.AssetID); err == nil {
+		if err := h.deps.Uploads.UpdateSessionStatus(c.Request.Context(), sess.ID, "completed"); err != nil {
+			writeErr(c, err)
+			return
+		}
+		if existing.Status == "uploaded" {
+			h.deps.Pipeline.Enqueue(context.Background(), existing)
+		}
+		h.deps.Metrics.RecordDirectUpload(uploadSessionMode(sess), "completed_recovered")
+		h.respondUploadAsset(c, existing)
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		writeErr(c, err)
 		return
 	}
 	releaseQuota, ok := h.reserveQuota(c, info.Bytes)
@@ -1890,7 +1989,7 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 	}
 	asset := &store.Asset{
 		ID: assetID, TenantID: Tenant(c), Purpose: sess.Purpose, Filename: sess.Filename, ContentType: contentType,
-		Bytes: info.Bytes, StorageKey: sess.StorageKey, Status: "uploaded", Source: sess.Source,
+		Bytes: info.Bytes, StorageKey: sess.StorageKey, Checksum: checksum, Status: "uploaded", Source: sess.Source,
 		Metadata: sess.Metadata, Tags: tagModels(sess.TagNames),
 	}
 	if err := h.deps.Assets.Create(c.Request.Context(), asset); err != nil {
@@ -1901,8 +2000,67 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 	h.invalidateStats(Tenant(c))
 	quotaCommitted = true
 	releaseQuota()
-	_ = h.deps.Uploads.UpdateSessionStatus(c.Request.Context(), sess.ID, "completed")
+	if err := h.deps.Uploads.UpdateSessionStatus(c.Request.Context(), sess.ID, "completed"); err != nil {
+		writeErr(c, err)
+		return
+	}
+	h.deps.Metrics.AddUploadBytes(info.Bytes)
+	h.deps.Metrics.RecordDirectUpload(uploadSessionMode(sess), "completed")
 	h.deps.Pipeline.Enqueue(context.Background(), asset)
+	h.respondUploadAsset(c, asset)
+}
+
+func (h handler) verifyDirectChecksum(c *gin.Context, sess *store.UploadSession, checksum string) (string, bool) {
+	checksum = strings.ToLower(strings.TrimSpace(checksum))
+	if checksum == "" {
+		return "", true
+	}
+	if len(checksum) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(checksum, "sha256:") {
+		writeError(c, http.StatusBadRequest, "invalid_checksum", "checksum must be sha256 followed by 64 hexadecimal characters")
+		return "", false
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(checksum, "sha256:")); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_checksum", "checksum must be sha256 followed by 64 hexadecimal characters")
+		return "", false
+	}
+	rc, err := h.deps.Storage.Get(c.Request.Context(), sess.StorageKey)
+	if err != nil {
+		writeErr(c, err)
+		return "", false
+	}
+	hash := sha256.New()
+	written, copyErr := io.Copy(hash, io.LimitReader(rc, h.deps.Config.MaxUploadBytes+1))
+	closeErr := rc.Close()
+	if copyErr != nil || closeErr != nil {
+		writeErr(c, errors.Join(copyErr, closeErr))
+		return "", false
+	}
+	if written > h.deps.Config.MaxUploadBytes {
+		writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
+		return "", false
+	}
+	actual := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	if actual != checksum {
+		writeError(c, http.StatusBadRequest, "checksum_mismatch", "uploaded object checksum does not match")
+		return "", false
+	}
+	return checksum, true
+}
+
+func (h handler) respondCompletedUpload(c *gin.Context, sess *store.UploadSession) {
+	asset, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), sess.AssetID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	if asset.Status == "uploaded" {
+		h.deps.Pipeline.Enqueue(context.Background(), asset)
+	}
+	h.respondUploadAsset(c, asset)
+}
+
+func (h handler) respondUploadAsset(c *gin.Context, asset *store.Asset) {
+	c.Set(assetIDKey, asset.ID)
 	if _, external := c.Get(externalUploadResponseKey); external {
 		c.JSON(http.StatusOK, h.externalAssetResponse(c, asset))
 		return
@@ -1912,9 +2070,11 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 
 func (h handler) cancelUpload(c *gin.Context) {
 	id := c.Param("id")
+	mode := "unknown"
 	if sess, err := h.deps.Uploads.GetSession(c.Request.Context(), Tenant(c), id); err == nil {
-		if sess.Status == "completed" {
-			writeError(c, http.StatusConflict, "conflict", "completed upload sessions cannot be cancelled")
+		mode = uploadSessionMode(sess)
+		if sess.Status == "completed" || sess.Status == "completing" {
+			writeError(c, http.StatusConflict, "conflict", "completed or completing upload sessions cannot be cancelled")
 			return
 		}
 		switch {
@@ -1931,6 +2091,9 @@ func (h handler) cancelUpload(c *gin.Context) {
 	if err := h.deps.Uploads.DeleteSession(c.Request.Context(), id); err != nil {
 		writeErr(c, err)
 		return
+	}
+	if mode == uploadModeDirect || mode == uploadModeDirectMultipart {
+		h.deps.Metrics.RecordDirectUpload(mode, "cancelled")
 	}
 	c.JSON(http.StatusOK, gin.H{"id": id, "deleted": true})
 }

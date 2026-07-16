@@ -277,3 +277,37 @@ func testAsset(id, filename, checksum string) *store.Asset {
 		Source:      "upload",
 	}
 }
+
+func TestStoreClaimSessionCompletionIsAtomicAndExtendsLease(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	now := time.Now().UTC()
+	session := &store.UploadSession{
+		ID: "upl-claim", TenantID: "default", AssetID: "asset-claim", Mode: "direct",
+		Filename: "claim.txt", Purpose: "general", Status: "pending", CreatedAt: now,
+		ExpiresAt: now.Add(time.Minute),
+	}
+	if err := db.CreateSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	leaseUntil := now.Add(time.Hour)
+	claimed, err := db.ClaimSessionCompletion(ctx, session.ID, leaseUntil)
+	if err != nil || !claimed {
+		t.Fatalf("first claim claimed=%v err=%v", claimed, err)
+	}
+	claimed, err = db.ClaimSessionCompletion(ctx, session.ID, leaseUntil)
+	if err != nil || claimed {
+		t.Fatalf("second claim claimed=%v err=%v", claimed, err)
+	}
+	loaded, err := db.GetSession(ctx, "default", session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Status != "completing" || loaded.ExpiresAt.Before(leaseUntil.Add(-time.Second)) {
+		t.Fatalf("claimed session status=%q expires=%s, want completing through %s", loaded.Status, loaded.ExpiresAt, leaseUntil)
+	}
+}

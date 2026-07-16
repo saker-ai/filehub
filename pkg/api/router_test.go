@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -652,6 +653,10 @@ func TestRouterExternalDirectObjectStoreUpload(t *testing.T) {
 			cfg.APIKeyAuthEnabled = true
 			cfg.APIKeys = []string{"test-key"}
 			ts := newTestServerWithConfig(t, cfg)
+			capabilities := ts.request(t, http.MethodGet, "/v1/external/capabilities", nil, nil)
+			if capabilities.Code != http.StatusOK || !strings.Contains(capabilities.Body.String(), `"directMultipartUpload":true`) {
+				t.Fatalf("external capabilities status=%d body=%s", capabilities.Code, capabilities.Body.String())
+			}
 
 			create := ts.request(t, http.MethodPost, "/v1/external/uploads", bytes.NewBufferString(
 				`{"mode":"direct","filename":"direct.txt","purpose":"general","contentType":"text/plain","totalBytes":11}`,
@@ -689,7 +694,17 @@ func TestRouterExternalDirectObjectStoreUpload(t *testing.T) {
 				t.Fatalf("provider put status=%d", putResp.StatusCode)
 			}
 
-			complete := ts.request(t, http.MethodPost, "/v1/external/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(`{}`), map[string]string{"Content-Type": "application/json"})
+			missingChecksum := ts.request(t, http.MethodPost, "/v1/external/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(`{}`), map[string]string{"Content-Type": "application/json"})
+			if missingChecksum.Code != http.StatusBadRequest || !strings.Contains(missingChecksum.Body.String(), "checksum_required") {
+				t.Fatalf("missing checksum status=%d body=%s", missingChecksum.Code, missingChecksum.Body.String())
+			}
+			badComplete := ts.request(t, http.MethodPost, "/v1/external/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(`{"checksum":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`), map[string]string{"Content-Type": "application/json"})
+			if badComplete.Code != http.StatusBadRequest || !strings.Contains(badComplete.Body.String(), "checksum_mismatch") {
+				t.Fatalf("checksum mismatch status=%d body=%s", badComplete.Code, badComplete.Body.String())
+			}
+			digest := sha256.Sum256([]byte("hello world"))
+			completeBody := fmt.Sprintf(`{"checksum":"sha256:%s"}`, hex.EncodeToString(digest[:]))
+			complete := ts.request(t, http.MethodPost, "/v1/external/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(completeBody), map[string]string{"Content-Type": "application/json"})
 			if complete.Code != http.StatusOK {
 				t.Fatalf("complete external direct upload status=%d body=%s", complete.Code, complete.Body.String())
 			}
@@ -703,6 +718,16 @@ func TestRouterExternalDirectObjectStoreUpload(t *testing.T) {
 			}
 			if asset.ID != created.AssetID || asset.ContentType != "text/plain" || asset.Size != 11 {
 				t.Fatalf("completed external asset = %#v", asset)
+			}
+			repeated := ts.request(t, http.MethodPost, "/v1/external/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(completeBody), map[string]string{"Content-Type": "application/json"})
+			if repeated.Code != http.StatusOK {
+				t.Fatalf("idempotent completion status=%d body=%s", repeated.Code, repeated.Body.String())
+			}
+			var repeatedAsset struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(repeated.Body.Bytes(), &repeatedAsset); err != nil || repeatedAsset.ID != asset.ID {
+				t.Fatalf("idempotent completion asset=%#v err=%v", repeatedAsset, err)
 			}
 			ts.waitReady(t, asset.ID)
 			content := ts.request(t, http.MethodGet, "/v1/external/assets/"+asset.ID, nil, nil)
@@ -818,6 +843,25 @@ func TestRouterDirectS3MultipartUpload(t *testing.T) {
 	body := ts.request(t, http.MethodGet, "/v1/assets/"+created.AssetID+"/content", nil, nil)
 	if got := body.Body.String(); got != "hello world" {
 		t.Fatalf("direct multipart content = %q, want hello world", got)
+	}
+
+	externalCreate := ts.request(t, http.MethodPost, "/v1/external/uploads", bytes.NewBufferString(`{"mode":"direct_multipart","filename":"external-large.txt","purpose":"media","contentType":"text/plain","totalBytes":5}`), map[string]string{"Content-Type": "application/json"})
+	if externalCreate.Code != http.StatusOK {
+		t.Fatalf("create external multipart status=%d body=%s", externalCreate.Code, externalCreate.Body.String())
+	}
+	var externalSession struct {
+		UploadID string `json:"uploadId"`
+	}
+	if err := json.Unmarshal(externalCreate.Body.Bytes(), &externalSession); err != nil || externalSession.UploadID == "" {
+		t.Fatalf("external multipart session=%#v err=%v", externalSession, err)
+	}
+	externalPresign := ts.request(t, http.MethodPost, "/v1/external/uploads/"+externalSession.UploadID+"/parts/1/presign", nil, nil)
+	if externalPresign.Code != http.StatusOK || !strings.Contains(externalPresign.Body.String(), `"uploadId"`) || !strings.Contains(externalPresign.Body.String(), `"expiresAt"`) {
+		t.Fatalf("external multipart presign status=%d body=%s", externalPresign.Code, externalPresign.Body.String())
+	}
+	cancel := ts.request(t, http.MethodDelete, "/v1/external/uploads/"+externalSession.UploadID, nil, nil)
+	if cancel.Code != http.StatusOK {
+		t.Fatalf("cancel external multipart status=%d body=%s", cancel.Code, cancel.Body.String())
 	}
 }
 
@@ -1138,7 +1182,7 @@ func TestRouterOpenAPIAndMetrics(t *testing.T) {
 		t.Fatalf("openapi version = %v, want 3.1.0", doc["openapi"])
 	}
 	paths := doc["paths"].(map[string]any)
-	for _, path := range []string{"/v1/files", "/v1/assets", "/v1/assets/{id}/presign", "/v1/uploads/{id}/complete", "/v1/dl/{id}"} {
+	for _, path := range []string{"/v1/files", "/v1/assets", "/v1/assets/{id}/presign", "/v1/external/capabilities", "/v1/external/uploads/{id}/parts/{part}/presign", "/v1/uploads/{id}/complete", "/v1/dl/{id}"} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("openapi missing path %s", path)
 		}
@@ -1158,6 +1202,7 @@ func TestRouterOpenAPIAndMetrics(t *testing.T) {
 		"filehub_requests_total",
 		"filehub_request_duration_seconds_bucket",
 		"filehub_upload_bytes_total",
+		"filehub_direct_uploads_total",
 		"filehub_storage_bytes",
 		"filehub_thumbnail_cache_hits_total 1",
 		`filehub_assets_total{purpose="media",status="all"} 1`,

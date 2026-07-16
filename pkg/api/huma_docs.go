@@ -251,7 +251,7 @@ type docCreateUploadOutput struct {
 
 type docCreateExternalUploadInput struct {
 	Body struct {
-		Mode        string         `json:"mode" enum:"direct" doc:"Direct provider upload mode."`
+		Mode        string         `json:"mode" enum:"direct,direct_multipart" doc:"Explicit provider upload mode."`
 		Filename    string         `json:"filename" required:"true"`
 		Purpose     string         `json:"purpose" required:"true" enum:"assistants,batch,fine-tune,media,vector-store,general"`
 		ContentType string         `json:"contentType"`
@@ -299,6 +299,30 @@ type docPresignUploadPartOutput struct {
 	}
 }
 
+type docExternalCapabilitiesOutput struct {
+	Body struct {
+		DirectUpload          bool     `json:"directUpload"`
+		DirectMultipartUpload bool     `json:"directMultipartUpload"`
+		MaxUploadBytes        int64    `json:"maxUploadBytes"`
+		DefaultPartSize       int64    `json:"defaultPartSize"`
+		MinPartSize           int64    `json:"minPartSize"`
+		MaxPartSize           int64    `json:"maxPartSize"`
+		ChecksumAlgorithms    []string `json:"checksumAlgorithms"`
+	}
+}
+
+type docPresignExternalUploadPartOutput struct {
+	Body struct {
+		UploadID  string            `json:"uploadId"`
+		AssetID   string            `json:"assetId"`
+		Part      int               `json:"part"`
+		Method    string            `json:"method"`
+		URL       string            `json:"url"`
+		Headers   map[string]string `json:"headers"`
+		ExpiresAt int64             `json:"expiresAt"`
+	}
+}
+
 type docCompleteUploadInput struct {
 	ID   string `path:"id" doc:"Upload session ID" required:"true"`
 	Body struct {
@@ -306,6 +330,7 @@ type docCompleteUploadInput struct {
 			Part int    `json:"part"`
 			ETag string `json:"etag"`
 		} `json:"parts"`
+		Checksum string `json:"checksum" doc:"Optional sha256:<hex> checksum verified before asset registration."`
 	}
 }
 
@@ -348,7 +373,9 @@ func registerOpenAPIDocs(api huma.API) {
 	registerDoc[docIDInput, struct{}](api, http.MethodGet, "/v1/external/assets/{id}", "external-download-asset", "External Asset API", "Download asset content", security)
 	registerDoc[docIDInput, struct{}](api, http.MethodHead, "/v1/external/assets/{id}", "external-head-asset", "External Asset API", "Check whether an asset exists", security)
 	registerDoc[docExternalPresignInput, docExternalPresignOutput](api, http.MethodPost, "/v1/external/assets/{id}/presign", "external-presign-asset", "External Asset API", "Create a signed download URL", security)
+	registerDoc[struct{}, docExternalCapabilitiesOutput](api, http.MethodGet, "/v1/external/capabilities", "external-capabilities", "External Asset API", "Discover direct upload capabilities and limits", security)
 	registerDoc[docCreateExternalUploadInput, docCreateExternalUploadOutput](api, http.MethodPost, "/v1/external/uploads", "external-create-upload", "External Asset API", "Create a direct provider upload session", security)
+	registerDoc[docPartInput, docPresignExternalUploadPartOutput](api, http.MethodPost, "/v1/external/uploads/{id}/parts/{part}/presign", "external-presign-upload-part", "External Asset API", "Create a direct multipart part upload URL", security)
 	registerDoc[docCompleteUploadInput, docExternalAssetOutput](api, http.MethodPost, "/v1/external/uploads/{id}/complete", "external-complete-upload", "External Asset API", "Complete a direct provider upload", security)
 	registerDoc[docUploadIDInput, docOKOutput](api, http.MethodDelete, "/v1/external/uploads/{id}", "external-cancel-upload", "External Asset API", "Cancel a direct provider upload", security)
 

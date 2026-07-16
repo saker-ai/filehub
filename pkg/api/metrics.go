@@ -20,6 +20,12 @@ type Metrics struct {
 	processingSum     float64
 	processingCount   int64
 	processingBuckets []int64
+	directUploads     map[directUploadKey]int64
+}
+
+type directUploadKey struct {
+	Mode    string
+	Outcome string
 }
 
 type requestKey struct {
@@ -35,7 +41,16 @@ type requestMetrics struct {
 }
 
 func NewMetrics() *Metrics {
-	return &Metrics{requests: map[requestKey]*requestMetrics{}, processingBuckets: make([]int64, len(durationBuckets)+1)}
+	return &Metrics{requests: map[requestKey]*requestMetrics{}, processingBuckets: make([]int64, len(durationBuckets)+1), directUploads: map[directUploadKey]int64{}}
+}
+
+func (m *Metrics) RecordDirectUpload(mode, outcome string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.directUploads[directUploadKey{Mode: mode, Outcome: outcome}]++
+	m.mu.Unlock()
 }
 
 func (m *Metrics) RecordRequest(method, route string, status int, duration time.Duration) {
@@ -140,6 +155,10 @@ func (m *Metrics) Render(stats *store.AssetStats) string {
 	processingSum := m.processingSum
 	processingCount := m.processingCount
 	processingBuckets := append([]int64(nil), m.processingBuckets...)
+	directUploads := make(map[directUploadKey]int64, len(m.directUploads))
+	for key, count := range m.directUploads {
+		directUploads[key] = count
+	}
 	m.mu.Unlock()
 
 	b.WriteString("# HELP filehub_upload_bytes_total Uploaded bytes accepted by FileHub.\n")
@@ -156,6 +175,21 @@ func (m *Metrics) Render(stats *store.AssetStats) string {
 	fmt.Fprintf(&b, "filehub_processing_duration_seconds_bucket{le=%q} %d\n", "+Inf", processingBuckets[len(processingBuckets)-1])
 	fmt.Fprintf(&b, "filehub_processing_duration_seconds_sum %g\n", processingSum)
 	fmt.Fprintf(&b, "filehub_processing_duration_seconds_count %d\n", processingCount)
+	b.WriteString("# HELP filehub_direct_uploads_total Direct upload lifecycle events.\n")
+	b.WriteString("# TYPE filehub_direct_uploads_total counter\n")
+	directKeys := make([]directUploadKey, 0, len(directUploads))
+	for key := range directUploads {
+		directKeys = append(directKeys, key)
+	}
+	sort.Slice(directKeys, func(i, j int) bool {
+		if directKeys[i].Mode != directKeys[j].Mode {
+			return directKeys[i].Mode < directKeys[j].Mode
+		}
+		return directKeys[i].Outcome < directKeys[j].Outcome
+	})
+	for _, key := range directKeys {
+		fmt.Fprintf(&b, "filehub_direct_uploads_total{mode=%q,outcome=%q} %d\n", key.Mode, key.Outcome, directUploads[key])
+	}
 	if stats != nil {
 		b.WriteString("# HELP filehub_storage_bytes Current stored bytes.\n")
 		b.WriteString("# TYPE filehub_storage_bytes gauge\n")

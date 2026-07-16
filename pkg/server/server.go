@@ -156,9 +156,22 @@ func (s *Server) collectExpired(ctx context.Context) {
 		return
 	}
 	for _, session := range sessions {
+		claimed, err := s.db.TransitionSessionStatus(ctx, session.ID, session.Status, "cleaning")
+		if err != nil {
+			s.logger.Warn("upload gc claim failed", "upload_id", session.ID, "error", err)
+			continue
+		}
+		if !claimed {
+			continue
+		}
 		if session.ProviderUploadID != "" {
 			if err := s.blobs.AbortMultipartUpload(ctx, session.StorageKey, session.ProviderUploadID); err != nil {
 				s.logger.Warn("upload multipart abort failed", "upload_id", session.ID, "error", err)
+			}
+		}
+		if session.Mode == "direct" && session.StorageKey != "" {
+			if err := s.blobs.Delete(ctx, session.StorageKey); err != nil {
+				s.logger.Warn("upload direct object gc failed", "upload_id", session.ID, "error", err)
 			}
 		}
 		if err := s.blobs.DeleteRecursive(ctx, storage.ChunkPrefix(session.ID)); err != nil {
@@ -166,6 +179,8 @@ func (s *Server) collectExpired(ctx context.Context) {
 		}
 		if err := s.db.DeleteSession(ctx, session.ID); err != nil {
 			s.logger.Warn("upload session gc failed", "upload_id", session.ID, "error", err)
+		} else if session.Mode == "direct" || session.Mode == "direct_multipart" {
+			s.metrics.RecordDirectUpload(session.Mode, "orphan_cleaned")
 		}
 	}
 }

@@ -873,6 +873,26 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string) erro
 	return nil
 }
 
+func (s *Store) TransitionSessionStatus(ctx context.Context, id, from, to string) (bool, error) {
+	res := s.db.WithContext(ctx).Model(&UploadSessionModel{}).
+		Where("id = ? AND status = ?", id, from).
+		Update("status", to)
+	if res.Error != nil {
+		return false, fmt.Errorf("transition upload status: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
+func (s *Store) ClaimSessionCompletion(ctx context.Context, id string, leaseUntil time.Time) (bool, error) {
+	res := s.db.WithContext(ctx).Model(&UploadSessionModel{}).
+		Where("id = ? AND status = ?", id, "pending").
+		Updates(map[string]any{"status": "completing", "expires_at": leaseUntil})
+	if res.Error != nil {
+		return false, fmt.Errorf("claim upload completion: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("upload_id = ?", id).Delete(&UploadPartModel{}).Error; err != nil {

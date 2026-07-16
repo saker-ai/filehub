@@ -103,6 +103,7 @@ FileHub exposes the generic external asset contract at `/v1/external`. Point cli
 ```text
 X-Saker-Storage-Uri: https://filehub.example.com/v1/external
 X-Saker-Storage-Uri: https://filehub.example.com/v1/external?upload_mode=direct&json_naming=snake_case
+X-Saker-Storage-Uri: https://filehub.example.com/v1/external?upload_mode=direct_multipart&json_naming=snake_case
 ```
 
 The first form keeps proxy upload as the compatible default. Use the second
@@ -118,13 +119,24 @@ validity is 7 days. FileHub's richer metadata API remains under `/v1/assets`.
 When the backend is S3 or OSS, clients can bypass FileHub's data plane with the
 optional direct-upload flow:
 
+`GET /capabilities` advertises single/multipart support, the upload limit,
+part-size bounds, and supported checksum algorithms. Clients must select
+`direct` or `direct_multipart` explicitly; FileHub does not silently fall back.
+
 1. `POST /uploads` with `mode=direct`, `filename`, `purpose`, `contentType`, and
    `totalBytes` creates a session and returns `uploadId`, `assetId`, `method`,
    `url`, and provider-required `headers`.
 2. Send the bytes once to the returned provider URL using the returned method
    and headers. Do not forward FileHub authentication to that URL.
-3. `POST /uploads/{uploadId}/complete` with `{}` verifies and registers the
+3. `POST /uploads/{uploadId}/complete` with `checksum=sha256:<hex>` verifies and registers the
    provider object, returning the normal generic asset result.
+
+For `mode=direct_multipart`, use
+`POST /uploads/{uploadId}/parts/{part}/presign` for every provider part and pass
+the returned ETags in the completion request. Completion is idempotent: retries
+return the previously registered asset. Expired unfinished sessions abort native
+multipart uploads or delete orphaned single-PUT objects. Lifecycle counters are
+exported as `filehub_direct_uploads_total{mode,outcome}`.
 
 `DELETE /uploads/{uploadId}` cancels an unfinished session and removes a
 single-part direct object when one was already uploaded. Direct upload URLs are
