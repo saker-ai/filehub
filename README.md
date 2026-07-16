@@ -110,6 +110,24 @@ The compatibility endpoints are `POST|PUT /assets`, `GET|HEAD /assets/{id}`, and
 signed URL for S3/OSS and a FileHub signed URL for local storage. Its default
 validity is 7 days. FileHub's richer metadata API remains under `/v1/assets`.
 
+When the backend is S3 or OSS, clients can bypass FileHub's data plane with the
+optional direct-upload flow:
+
+1. `POST /uploads` with `mode=direct`, `filename`, `purpose`, `contentType`, and
+   `totalBytes` creates a session and returns `uploadId`, `assetId`, `method`,
+   `url`, and provider-required `headers`.
+2. Send the bytes once to the returned provider URL using the returned method
+   and headers. Do not forward FileHub authentication to that URL.
+3. `POST /uploads/{uploadId}/complete` with `{}` verifies and registers the
+   provider object, returning the normal generic asset result.
+
+`DELETE /uploads/{uploadId}` cancels an unfinished session and removes a
+single-part direct object when one was already uploaded. Direct upload URLs are
+short-lived (up to 15 minutes); this is independent from the 7-day signed
+download URL lifetime. Request fields accept both camelCase and snake_case.
+Local filesystem storage continues to use `POST|PUT /assets` because it cannot
+issue a provider-native upload URL.
+
 ## Web UI
 
 The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them.

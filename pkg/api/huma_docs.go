@@ -249,6 +249,33 @@ type docCreateUploadOutput struct {
 	}
 }
 
+type docCreateExternalUploadInput struct {
+	Body struct {
+		Mode        string         `json:"mode" enum:"direct" doc:"Direct provider upload mode."`
+		Filename    string         `json:"filename" required:"true"`
+		Purpose     string         `json:"purpose" required:"true" enum:"assistants,batch,fine-tune,media,vector-store,general"`
+		ContentType string         `json:"contentType"`
+		TotalBytes  int64          `json:"totalBytes"`
+		Tags        []string       `json:"tags"`
+		Metadata    map[string]any `json:"metadata"`
+		Source      string         `json:"source"`
+	}
+}
+
+type docCreateExternalUploadOutput struct {
+	Body struct {
+		UploadID     string            `json:"uploadId"`
+		AssetID      string            `json:"assetId"`
+		Mode         string            `json:"mode"`
+		ChunkSize    int64             `json:"chunkSize"`
+		Method       string            `json:"method"`
+		URL          string            `json:"url"`
+		Headers      map[string]string `json:"headers"`
+		URLExpiresAt int64             `json:"urlExpiresAt"`
+		ExpiresAt    int64             `json:"expiresAt"`
+	}
+}
+
 type docPresignUploadOutput struct {
 	Body struct {
 		UploadID  string            `json:"upload_id"`
@@ -321,6 +348,9 @@ func registerOpenAPIDocs(api huma.API) {
 	registerDoc[docIDInput, struct{}](api, http.MethodGet, "/v1/external/assets/{id}", "external-download-asset", "External Asset API", "Download asset content", security)
 	registerDoc[docIDInput, struct{}](api, http.MethodHead, "/v1/external/assets/{id}", "external-head-asset", "External Asset API", "Check whether an asset exists", security)
 	registerDoc[docExternalPresignInput, docExternalPresignOutput](api, http.MethodPost, "/v1/external/assets/{id}/presign", "external-presign-asset", "External Asset API", "Create a signed download URL", security)
+	registerDoc[docCreateExternalUploadInput, docCreateExternalUploadOutput](api, http.MethodPost, "/v1/external/uploads", "external-create-upload", "External Asset API", "Create a direct provider upload session", security)
+	registerDoc[docCompleteUploadInput, docExternalAssetOutput](api, http.MethodPost, "/v1/external/uploads/{id}/complete", "external-complete-upload", "External Asset API", "Complete a direct provider upload", security)
+	registerDoc[docUploadIDInput, docOKOutput](api, http.MethodDelete, "/v1/external/uploads/{id}", "external-cancel-upload", "External Asset API", "Cancel a direct provider upload", security)
 
 	registerDoc[docSignedDownloadInput, struct{}](api, http.MethodGet, "/v1/dl/{id}", "signed-download", "Downloads", "Download via signed URL", nil)
 	registerDoc[docCreateUploadInput, docCreateUploadOutput](api, http.MethodPost, "/v1/uploads", "create-upload", "Uploads", "Create upload session", security)

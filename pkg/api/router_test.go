@@ -638,6 +638,116 @@ func TestRouterDirectS3Upload(t *testing.T) {
 	}
 }
 
+func TestRouterExternalDirectObjectStoreUpload(t *testing.T) {
+	for _, backend := range []string{config.BackendS3, config.BackendOSS} {
+		t.Run(backend, func(t *testing.T) {
+			s3fake := newFakeS3Server(t)
+			cfg := config.Defaults()
+			cfg.Storage.Backend = backend
+			cfg.Storage.S3Endpoint = s3fake.URL
+			cfg.Storage.S3Bucket = "test-bucket"
+			cfg.Storage.S3Region = "us-east-1"
+			cfg.Storage.S3AccessKey = "test-key"
+			cfg.Storage.S3SecretKey = "test-secret"
+			cfg.APIKeyAuthEnabled = true
+			cfg.APIKeys = []string{"test-key"}
+			ts := newTestServerWithConfig(t, cfg)
+
+			create := ts.request(t, http.MethodPost, "/v1/external/uploads", bytes.NewBufferString(
+				`{"mode":"direct","filename":"direct.txt","purpose":"general","contentType":"text/plain","totalBytes":11}`,
+			), map[string]string{"Content-Type": "application/json"})
+			if create.Code != http.StatusOK {
+				t.Fatalf("create external direct upload status=%d body=%s", create.Code, create.Body.String())
+			}
+			var created struct {
+				UploadID string            `json:"uploadId"`
+				AssetID  string            `json:"assetId"`
+				Method   string            `json:"method"`
+				URL      string            `json:"url"`
+				Headers  map[string]string `json:"headers"`
+			}
+			if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+				t.Fatal(err)
+			}
+			if created.UploadID == "" || created.AssetID == "" || created.Method != http.MethodPut || created.URL == "" {
+				t.Fatalf("external direct upload response = %#v", created)
+			}
+
+			putReq, err := http.NewRequest(created.Method, created.URL, bytes.NewBufferString("hello world"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range created.Headers {
+				putReq.Header.Set(key, value)
+			}
+			putResp, err := http.DefaultClient.Do(putReq)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = putResp.Body.Close()
+			if putResp.StatusCode != http.StatusOK {
+				t.Fatalf("provider put status=%d", putResp.StatusCode)
+			}
+
+			complete := ts.request(t, http.MethodPost, "/v1/external/uploads/"+created.UploadID+"/complete", bytes.NewBufferString(`{}`), map[string]string{"Content-Type": "application/json"})
+			if complete.Code != http.StatusOK {
+				t.Fatalf("complete external direct upload status=%d body=%s", complete.Code, complete.Body.String())
+			}
+			var asset struct {
+				ID          string `json:"id"`
+				ContentType string `json:"contentType"`
+				Size        int64  `json:"size"`
+			}
+			if err := json.Unmarshal(complete.Body.Bytes(), &asset); err != nil {
+				t.Fatal(err)
+			}
+			if asset.ID != created.AssetID || asset.ContentType != "text/plain" || asset.Size != 11 {
+				t.Fatalf("completed external asset = %#v", asset)
+			}
+			ts.waitReady(t, asset.ID)
+			content := ts.request(t, http.MethodGet, "/v1/external/assets/"+asset.ID, nil, nil)
+			if content.Code != http.StatusOK || content.Body.String() != "hello world" {
+				t.Fatalf("external content status=%d body=%q", content.Code, content.Body.String())
+			}
+			cancel := ts.request(t, http.MethodDelete, "/v1/external/uploads/"+created.UploadID, nil, nil)
+			if cancel.Code != http.StatusConflict {
+				t.Fatalf("cancel completed upload status=%d body=%s", cancel.Code, cancel.Body.String())
+			}
+			content = ts.request(t, http.MethodGet, "/v1/external/assets/"+asset.ID, nil, nil)
+			if content.Code != http.StatusOK || content.Body.String() != "hello world" {
+				t.Fatalf("content after rejected cancellation status=%d body=%q", content.Code, content.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouterExternalDirectUploadRejectsConflictingNaming(t *testing.T) {
+	s3fake := newFakeS3Server(t)
+	cfg := config.Defaults()
+	cfg.Storage.Backend = config.BackendOSS
+	cfg.Storage.S3Endpoint = s3fake.URL
+	cfg.Storage.S3Bucket = "test-bucket"
+	cfg.Storage.S3Region = "us-east-1"
+	cfg.Storage.S3AccessKey = "test-key"
+	cfg.Storage.S3SecretKey = "test-secret"
+	cfg.APIKeyAuthEnabled = true
+	cfg.APIKeys = []string{"test-key"}
+	ts := newTestServerWithConfig(t, cfg)
+
+	create := ts.request(t, http.MethodPost, "/v1/external/uploads", bytes.NewBufferString(
+		`{"mode":"direct","filename":"direct.txt","purpose":"general","contentType":"text/plain","content_type":"image/png"}`,
+	), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusBadRequest {
+		t.Fatalf("conflicting naming status=%d body=%s", create.Code, create.Body.String())
+	}
+	create = ts.request(t, http.MethodPost, "/v1/external/uploads", bytes.NewBufferString(
+		`{"filename":"direct.txt","purpose":"general","contentType":"text/plain"}`,
+	), map[string]string{"Content-Type": "application/json"})
+	if create.Code != http.StatusBadRequest {
+		t.Fatalf("missing direct mode status=%d body=%s", create.Code, create.Body.String())
+	}
+}
+
 func TestRouterDirectS3MultipartUpload(t *testing.T) {
 	s3fake := newFakeS3Server(t)
 	cfg := config.Defaults()

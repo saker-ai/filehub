@@ -130,6 +130,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	v1.GET("/external/assets/:id", h.getContent)
 	v1.HEAD("/external/assets/:id", h.headExternalAsset)
 	v1.POST("/external/assets/:id/presign", h.presign)
+	v1.POST("/external/uploads", h.createExternalUpload)
+	v1.POST("/external/uploads/:id/complete", h.completeExternalUpload)
+	v1.DELETE("/external/uploads/:id", h.cancelUpload)
 	v1.GET("/dl/:id", h.signedDownload)
 	v1.POST("/uploads", h.createUpload)
 	v1.POST("/uploads/:id/presign", h.presignUpload)
@@ -171,6 +174,7 @@ const (
 	uploadModeDirect          = "direct"
 	uploadModeDirectMultipart = "direct_multipart"
 	defaultUploadPresignTTL   = 15 * time.Minute
+	externalUploadResponseKey = "filehub.external_upload_response"
 )
 
 func newHandler(deps RouterDeps) handler {
@@ -1325,17 +1329,27 @@ func (h handler) createUpload(c *gin.Context) {
 	}
 	defer h.releaseUpload()
 	var req struct {
-		Mode        string         `json:"mode"`
-		Filename    string         `json:"filename"`
-		Purpose     string         `json:"purpose"`
-		ContentType string         `json:"content_type"`
-		TotalBytes  int64          `json:"total_bytes"`
-		Tags        []string       `json:"tags"`
-		Metadata    map[string]any `json:"metadata"`
-		Source      string         `json:"source"`
+		Mode             string         `json:"mode"`
+		Filename         string         `json:"filename"`
+		Purpose          string         `json:"purpose"`
+		ContentTypeSnake *string        `json:"content_type"`
+		ContentTypeCamel *string        `json:"contentType"`
+		TotalBytesSnake  *int64         `json:"total_bytes"`
+		TotalBytesCamel  *int64         `json:"totalBytes"`
+		Tags             []string       `json:"tags"`
+		Metadata         map[string]any `json:"metadata"`
+		Source           string         `json:"source"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	contentType, ok := compatibleStringFields(c, req.ContentTypeSnake, req.ContentTypeCamel, "content_type", "contentType")
+	if !ok {
+		return
+	}
+	totalBytes, ok := compatibleInt64Fields(c, req.TotalBytesSnake, req.TotalBytesCamel, "total_bytes", "totalBytes")
+	if !ok {
 		return
 	}
 	if !validPurposes[req.Purpose] {
@@ -1347,16 +1361,24 @@ func (h handler) createUpload(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "invalid upload mode")
 		return
 	}
+	if _, external := c.Get(externalUploadResponseKey); external && mode != uploadModeDirect {
+		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "external upload sessions support direct mode only")
+		return
+	}
 	if mode != uploadModeProxy && !h.deps.Storage.NativeMultipartSupported() {
 		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "direct upload requires s3 or oss storage")
 		return
 	}
-	if req.TotalBytes > h.deps.Config.MaxUploadBytes {
+	if totalBytes < 0 {
+		writeError(c, http.StatusBadRequest, "invalid_request", "total bytes must not be negative")
+		return
+	}
+	if totalBytes > h.deps.Config.MaxUploadBytes {
 		writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
 		return
 	}
-	if req.TotalBytes > 0 {
-		releaseQuota, ok := h.reserveQuota(c, req.TotalBytes)
+	if totalBytes > 0 {
+		releaseQuota, ok := h.reserveQuota(c, totalBytes)
 		if !ok {
 			return
 		}
@@ -1368,7 +1390,7 @@ func (h handler) createUpload(c *gin.Context) {
 	providerUploadID := ""
 	if h.deps.Storage.NativeMultipartSupported() && mode != uploadModeDirect {
 		var err error
-		providerUploadID, err = h.deps.Storage.CreateMultipartUpload(c.Request.Context(), storageKey, req.ContentType)
+		providerUploadID, err = h.deps.Storage.CreateMultipartUpload(c.Request.Context(), storageKey, contentType)
 		if err != nil {
 			writeErr(c, err)
 			return
@@ -1376,7 +1398,7 @@ func (h handler) createUpload(c *gin.Context) {
 	}
 	sess := &store.UploadSession{
 		ID: "upl-" + shortID(), TenantID: Tenant(c), AssetID: assetID, Mode: mode, Filename: req.Filename, Purpose: req.Purpose,
-		ContentType: req.ContentType, TotalBytes: req.TotalBytes, ChunkSize: 10 * 1024 * 1024, StorageKey: storageKey,
+		ContentType: contentType, TotalBytes: totalBytes, ChunkSize: 10 * 1024 * 1024, StorageKey: storageKey,
 		ProviderUploadID: providerUploadID, Status: "pending",
 		Source: defaultString(req.Source, "upload"), Metadata: store.JSONMap(req.Metadata), TagNames: req.Tags, CreatedAt: now,
 		ExpiresAt: now.Add(h.deps.Config.ChunkUploadMaxAge),
@@ -1401,7 +1423,54 @@ func (h handler) createUpload(c *gin.Context) {
 		out["headers"] = signed.Header
 		out["url_expires_at"] = signed.Expires.Unix()
 	}
+	if _, external := c.Get(externalUploadResponseKey); external {
+		externalOut := gin.H{
+			"uploadId": out["upload_id"], "assetId": out["asset_id"], "mode": out["mode"],
+			"chunkSize": out["chunk_size"], "expiresAt": out["expires_at"],
+		}
+		if mode == uploadModeDirect {
+			externalOut["method"] = out["method"]
+			externalOut["url"] = out["url"]
+			externalOut["headers"] = out["headers"]
+			externalOut["urlExpiresAt"] = out["url_expires_at"]
+		}
+		c.JSON(http.StatusOK, externalOut)
+		return
+	}
 	c.JSON(http.StatusOK, out)
+}
+
+func (h handler) createExternalUpload(c *gin.Context) {
+	c.Set(externalUploadResponseKey, true)
+	h.createUpload(c)
+}
+
+func compatibleStringFields(c *gin.Context, snake, camel *string, snakeName, camelName string) (string, bool) {
+	if snake != nil && camel != nil && *snake != *camel {
+		writeError(c, http.StatusBadRequest, "invalid_request", "conflicting "+snakeName+" and "+camelName)
+		return "", false
+	}
+	if snake != nil {
+		return *snake, true
+	}
+	if camel != nil {
+		return *camel, true
+	}
+	return "", true
+}
+
+func compatibleInt64Fields(c *gin.Context, snake, camel *int64, snakeName, camelName string) (int64, bool) {
+	if snake != nil && camel != nil && *snake != *camel {
+		writeError(c, http.StatusBadRequest, "invalid_request", "conflicting "+snakeName+" and "+camelName)
+		return 0, false
+	}
+	if snake != nil {
+		return *snake, true
+	}
+	if camel != nil {
+		return *camel, true
+	}
+	return 0, true
 }
 
 func (h handler) presignUpload(c *gin.Context) {
@@ -1582,6 +1651,10 @@ func (h handler) completeUpload(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "upload session expired")
 		return
 	}
+	if _, external := c.Get(externalUploadResponseKey); external && uploadSessionMode(sess) != uploadModeDirect {
+		writeError(c, http.StatusBadRequest, "unsupported_upload_mode", "external completion supports direct mode only")
+		return
+	}
 	var req struct {
 		Parts []struct {
 			Part int    `json:"part"`
@@ -1737,6 +1810,11 @@ func (h handler) completeUpload(c *gin.Context) {
 	c.JSON(http.StatusOK, assetResponse(asset, false))
 }
 
+func (h handler) completeExternalUpload(c *gin.Context) {
+	c.Set(externalUploadResponseKey, true)
+	h.completeUpload(c)
+}
+
 func (h handler) completeDirectObject(c *gin.Context, sess *store.UploadSession) {
 	info, err := h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
 	if err != nil {
@@ -1825,13 +1903,28 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 	releaseQuota()
 	_ = h.deps.Uploads.UpdateSessionStatus(c.Request.Context(), sess.ID, "completed")
 	h.deps.Pipeline.Enqueue(context.Background(), asset)
+	if _, external := c.Get(externalUploadResponseKey); external {
+		c.JSON(http.StatusOK, h.externalAssetResponse(c, asset))
+		return
+	}
 	c.JSON(http.StatusOK, assetResponse(asset, false))
 }
 
 func (h handler) cancelUpload(c *gin.Context) {
 	id := c.Param("id")
-	if sess, err := h.deps.Uploads.GetSession(c.Request.Context(), Tenant(c), id); err == nil && sess.ProviderUploadID != "" {
-		_ = h.deps.Storage.AbortMultipartUpload(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID)
+	if sess, err := h.deps.Uploads.GetSession(c.Request.Context(), Tenant(c), id); err == nil {
+		if sess.Status == "completed" {
+			writeError(c, http.StatusConflict, "conflict", "completed upload sessions cannot be cancelled")
+			return
+		}
+		switch {
+		case sess.ProviderUploadID != "":
+			_ = h.deps.Storage.AbortMultipartUpload(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID)
+		case uploadSessionMode(sess) == uploadModeDirect:
+			_ = h.deps.Storage.Delete(c.Request.Context(), sess.StorageKey)
+		default:
+			_ = h.deps.Storage.DeleteRecursive(c.Request.Context(), blob.ChunkPrefix(id))
+		}
 	} else {
 		_ = h.deps.Storage.DeleteRecursive(c.Request.Context(), blob.ChunkPrefix(id))
 	}
