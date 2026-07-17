@@ -156,7 +156,7 @@ func (s *Server) collectExpired(ctx context.Context) {
 		return
 	}
 	for _, session := range sessions {
-		claimed, err := s.db.TransitionSessionStatus(ctx, session.ID, session.Status, "cleaning")
+		claimed, err := s.db.ClaimSessionCleanup(ctx, session.ID, session.Status, time.Now().UTC().Add(5*time.Minute))
 		if err != nil {
 			s.logger.Warn("upload gc claim failed", "upload_id", session.ID, "error", err)
 			continue
@@ -164,18 +164,13 @@ func (s *Server) collectExpired(ctx context.Context) {
 		if !claimed {
 			continue
 		}
-		if session.ProviderUploadID != "" {
-			if err := s.blobs.AbortMultipartUpload(ctx, session.StorageKey, session.ProviderUploadID); err != nil {
-				s.logger.Warn("upload multipart abort failed", "upload_id", session.ID, "error", err)
+		if err := s.cleanupUploadSession(ctx, session); err != nil {
+			s.logger.Warn("upload gc cleanup failed", "upload_id", session.ID, "error", err)
+			_, _ = s.db.TransitionSessionStatus(context.WithoutCancel(ctx), session.ID, "cleaning", "cleanup_failed")
+			if session.Mode == "direct" || session.Mode == "direct_multipart" {
+				s.metrics.RecordDirectUpload(session.Mode, "orphan_cleanup_failed")
 			}
-		}
-		if session.Mode == "direct" && session.StorageKey != "" {
-			if err := s.blobs.Delete(ctx, session.StorageKey); err != nil {
-				s.logger.Warn("upload direct object gc failed", "upload_id", session.ID, "error", err)
-			}
-		}
-		if err := s.blobs.DeleteRecursive(ctx, storage.ChunkPrefix(session.ID)); err != nil {
-			s.logger.Warn("upload chunk gc failed", "upload_id", session.ID, "error", err)
+			continue
 		}
 		if err := s.db.DeleteSession(ctx, session.ID); err != nil {
 			s.logger.Warn("upload session gc failed", "upload_id", session.ID, "error", err)
@@ -183,6 +178,24 @@ func (s *Server) collectExpired(ctx context.Context) {
 			s.metrics.RecordDirectUpload(session.Mode, "orphan_cleaned")
 		}
 	}
+}
+
+func (s *Server) cleanupUploadSession(ctx context.Context, session *store.UploadSession) error {
+	var cleanupErr error
+	if session.ProviderUploadID != "" {
+		if err := s.blobs.AbortMultipartUpload(ctx, session.StorageKey, session.ProviderUploadID); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("abort multipart upload: %w", err))
+		}
+	}
+	if (session.Mode == "direct" || session.Mode == "direct_multipart") && session.StorageKey != "" {
+		if err := s.blobs.Delete(ctx, session.StorageKey); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete direct object: %w", err))
+		}
+	}
+	if err := s.blobs.DeleteRecursive(ctx, storage.ChunkPrefix(session.ID)); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete upload chunks: %w", err))
+	}
+	return cleanupErr
 }
 
 func (s *Server) deleteAsset(ctx context.Context, asset *store.Asset) error {

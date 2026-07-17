@@ -131,12 +131,21 @@ part-size bounds, and supported checksum algorithms. Clients must select
 3. `POST /uploads/{uploadId}/complete` with `checksum=sha256:<hex>` verifies and registers the
    provider object, returning the normal generic asset result.
 
+Provider upload URLs always target a session-owned staging key. Completion
+verifies that object, promotes it to the stable asset key, and removes the
+staging object. Reusing an unexpired upload URL therefore cannot overwrite the
+registered asset. Promotion and completion are retry-safe after process crashes.
+
 For `mode=direct_multipart`, use
 `POST /uploads/{uploadId}/parts/{part}/presign` for every provider part and pass
 the returned ETags in the completion request. Completion is idempotent: retries
 return the previously registered asset. Expired unfinished sessions abort native
 multipart uploads or delete orphaned single-PUT objects. Lifecycle counters are
-exported as `filehub_direct_uploads_total{mode,outcome}`.
+exported as `filehub_direct_uploads_total{mode,outcome}`. Cleanup failures retain
+the session for a leased retry and emit `outcome="orphan_cleanup_failed"`; a
+session is deleted and counted as `orphan_cleaned` only after every provider and
+chunk cleanup succeeds. Asset processing uses a database claim so completion
+retries cannot enqueue the same asset twice.
 
 `DELETE /uploads/{uploadId}` cancels an unfinished session and removes a
 single-part direct object when one was already uploaded. Direct upload URLs are

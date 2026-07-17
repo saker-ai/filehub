@@ -483,7 +483,7 @@ func isS3NotFound(err error) bool {
 		return false
 	}
 	switch apiErr.ErrorCode() {
-	case "NoSuchKey", "NotFound", "NoSuchBucket", "404":
+	case "NoSuchKey", "NoSuchUpload", "NotFound", "NoSuchBucket", "404":
 		return true
 	default:
 		return false
@@ -570,7 +570,7 @@ func (s *Store) AbortMultipartUpload(ctx context.Context, key, uploadID string) 
 		Bucket:   aws.String(s.s3Bucket),
 		Key:      aws.String(s.objectKey(key)),
 		UploadId: aws.String(uploadID),
-	}); err != nil {
+	}); err != nil && !isS3NotFound(err) {
 		return fmt.Errorf("abort multipart upload: %w", err)
 	}
 	return nil

@@ -50,16 +50,27 @@ func (p *Pipeline) ObserveProcessing(fn func(time.Duration)) {
 }
 
 func (p *Pipeline) Enqueue(ctx context.Context, asset *store.Asset) {
+	claimed, err := p.repo.TransitionStatus(ctx, asset.ID, "uploaded", "processing")
+	if err != nil {
+		p.logger.Warn("asset processing claim failed", "asset_id", asset.ID, "error", err)
+		return
+	}
+	if !claimed {
+		return
+	}
+	workAsset := *asset
+	workAsset.Metadata = make(store.JSONMap, len(asset.Metadata))
+	for key, value := range asset.Metadata {
+		workAsset.Metadata[key] = value
+	}
+	workAsset.Tags = append([]store.Tag(nil), asset.Tags...)
 	p.wg.Add(1)
+	workCtx := context.WithoutCancel(ctx)
 	go func() {
 		defer p.wg.Done()
-		select {
-		case p.sem <- struct{}{}:
-			defer func() { <-p.sem }()
-		case <-ctx.Done():
-			return
-		}
-		if err := p.Process(ctx, asset); err != nil {
+		p.sem <- struct{}{}
+		defer func() { <-p.sem }()
+		if err := p.Process(workCtx, &workAsset); err != nil {
 			p.logger.Warn("asset processing failed", "asset_id", asset.ID, "error", err)
 			_ = p.repo.UpdateStatus(context.Background(), asset.ID, "error")
 		}
@@ -73,9 +84,6 @@ func (p *Pipeline) Process(ctx context.Context, asset *store.Asset) error {
 			p.observe(time.Since(start))
 		}
 	}()
-	if err := p.repo.UpdateStatus(ctx, asset.ID, "processing"); err != nil {
-		return err
-	}
 	data, err := p.storage.ReadAll(ctx, asset.StorageKey)
 	if err != nil {
 		return err

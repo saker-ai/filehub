@@ -1388,7 +1388,11 @@ func (h handler) createUpload(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	assetID := "asset-" + shortID()
+	uploadID := "upl-" + shortID()
 	storageKey := storageKey(Tenant(c), req.Purpose, assetID, req.Filename)
+	if mode == uploadModeDirect || mode == uploadModeDirectMultipart {
+		storageKey = stagedUploadKey(Tenant(c), uploadID, req.Filename)
+	}
 	providerUploadID := ""
 	if h.deps.Storage.NativeMultipartSupported() && mode != uploadModeDirect {
 		var err error
@@ -1399,7 +1403,7 @@ func (h handler) createUpload(c *gin.Context) {
 		}
 	}
 	sess := &store.UploadSession{
-		ID: "upl-" + shortID(), TenantID: Tenant(c), AssetID: assetID, Mode: mode, Filename: req.Filename, Purpose: req.Purpose,
+		ID: uploadID, TenantID: Tenant(c), AssetID: assetID, Mode: mode, Filename: req.Filename, Purpose: req.Purpose,
 		ContentType: contentType, TotalBytes: totalBytes, ChunkSize: 10 * 1024 * 1024, StorageKey: storageKey,
 		ProviderUploadID: providerUploadID, Status: "pending",
 		Source: defaultString(req.Source, "upload"), Metadata: store.JSONMap(req.Metadata), TagNames: req.Tags, CreatedAt: now,
@@ -1411,9 +1415,6 @@ func (h handler) createUpload(c *gin.Context) {
 		}
 		writeErr(c, err)
 		return
-	}
-	if mode == uploadModeDirect || mode == uploadModeDirectMultipart {
-		h.deps.Metrics.RecordDirectUpload(mode, "created")
 	}
 	out := gin.H{"upload_id": sess.ID, "asset_id": sess.AssetID, "mode": sess.Mode, "chunk_size": sess.ChunkSize, "expires_at": sess.ExpiresAt.Unix()}
 	if mode == uploadModeDirect {
@@ -1427,6 +1428,9 @@ func (h handler) createUpload(c *gin.Context) {
 		out["url"] = signed.URL
 		out["headers"] = signed.Header
 		out["url_expires_at"] = signed.Expires.Unix()
+	}
+	if mode == uploadModeDirect || mode == uploadModeDirectMultipart {
+		h.deps.Metrics.RecordDirectUpload(mode, "created")
 	}
 	if _, external := c.Get(externalUploadResponseKey); external {
 		externalOut := gin.H{
@@ -1883,12 +1887,26 @@ func (h handler) completeExternalUpload(c *gin.Context) {
 }
 
 func (h handler) completeDirectObject(c *gin.Context, sess *store.UploadSession, checksum string) {
-	info, err := h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
+	objectKey, info, err := h.directCompletionObject(c.Request.Context(), sess)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	h.completeUploadedSession(c, sess, info, checksum)
+	h.completeUploadedSession(c, sess, objectKey, info, checksum)
+}
+
+func (h handler) directCompletionObject(ctx context.Context, sess *store.UploadSession) (string, *blob.ObjectInfo, error) {
+	finalKey := directFinalKey(sess)
+	if finalKey == sess.StorageKey {
+		info, err := h.deps.Storage.HeadObject(ctx, sess.StorageKey)
+		return sess.StorageKey, info, err
+	}
+	info, err := h.deps.Storage.HeadObject(ctx, finalKey)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return finalKey, info, err
+	}
+	info, sourceErr := h.deps.Storage.HeadObject(ctx, sess.StorageKey)
+	return sess.StorageKey, info, sourceErr
 }
 
 func (h handler) completeDirectMultipart(c *gin.Context, sess *store.UploadSession, rawParts []struct {
@@ -1918,7 +1936,7 @@ func (h handler) completeDirectMultipart(c *gin.Context, sess *store.UploadSessi
 		previousPart = p.Part
 		nativeParts = append(nativeParts, blob.MultipartPart{PartNum: p.Part, ETag: etag})
 	}
-	info, headErr := h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
+	objectKey, info, headErr := h.directCompletionObject(c.Request.Context(), sess)
 	if headErr != nil && !errors.Is(headErr, os.ErrNotExist) {
 		writeErr(c, headErr)
 		return
@@ -1928,16 +1946,17 @@ func (h handler) completeDirectMultipart(c *gin.Context, sess *store.UploadSessi
 			writeErr(c, err)
 			return
 		}
+		objectKey = sess.StorageKey
 		info, headErr = h.deps.Storage.HeadObject(c.Request.Context(), sess.StorageKey)
 	}
 	if headErr != nil {
 		writeErr(c, headErr)
 		return
 	}
-	h.completeUploadedSession(c, sess, info, checksum)
+	h.completeUploadedSession(c, sess, objectKey, info, checksum)
 }
 
-func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSession, info *blob.ObjectInfo, checksum string) {
+func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSession, objectKey string, info *blob.ObjectInfo, checksum string) {
 	if info == nil {
 		writeError(c, http.StatusBadRequest, "invalid_request", "uploaded object not found")
 		return
@@ -1950,9 +1969,16 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 		writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
 		return
 	}
-	checksum, ok := h.verifyDirectChecksum(c, sess, checksum)
+	checksum, ok := h.verifyDirectChecksum(c, objectKey, checksum)
 	if !ok {
 		return
+	}
+	finalKey := directFinalKey(sess)
+	if objectKey != finalKey {
+		if err := h.deps.Storage.Promote(c.Request.Context(), objectKey, finalKey); err != nil {
+			writeErr(c, err)
+			return
+		}
 	}
 	if existing, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), sess.AssetID); err == nil {
 		if err := h.deps.Uploads.UpdateSessionStatus(c.Request.Context(), sess.ID, "completed"); err != nil {
@@ -1989,7 +2015,7 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 	}
 	asset := &store.Asset{
 		ID: assetID, TenantID: Tenant(c), Purpose: sess.Purpose, Filename: sess.Filename, ContentType: contentType,
-		Bytes: info.Bytes, StorageKey: sess.StorageKey, Checksum: checksum, Status: "uploaded", Source: sess.Source,
+		Bytes: info.Bytes, StorageKey: finalKey, Checksum: checksum, Status: "uploaded", Source: sess.Source,
 		Metadata: sess.Metadata, Tags: tagModels(sess.TagNames),
 	}
 	if err := h.deps.Assets.Create(c.Request.Context(), asset); err != nil {
@@ -2010,7 +2036,7 @@ func (h handler) completeUploadedSession(c *gin.Context, sess *store.UploadSessi
 	h.respondUploadAsset(c, asset)
 }
 
-func (h handler) verifyDirectChecksum(c *gin.Context, sess *store.UploadSession, checksum string) (string, bool) {
+func (h handler) verifyDirectChecksum(c *gin.Context, objectKey, checksum string) (string, bool) {
 	checksum = strings.ToLower(strings.TrimSpace(checksum))
 	if checksum == "" {
 		return "", true
@@ -2023,7 +2049,7 @@ func (h handler) verifyDirectChecksum(c *gin.Context, sess *store.UploadSession,
 		writeError(c, http.StatusBadRequest, "invalid_checksum", "checksum must be sha256 followed by 64 hexadecimal characters")
 		return "", false
 	}
-	rc, err := h.deps.Storage.Get(c.Request.Context(), sess.StorageKey)
+	rc, err := h.deps.Storage.Get(c.Request.Context(), objectKey)
 	if err != nil {
 		writeErr(c, err)
 		return "", false
@@ -2230,11 +2256,37 @@ func assetReviewItemResponse(item *store.AssetReviewItem) gin.H {
 }
 
 func storageKey(tenantID, purpose, id, filename string) string {
+	return storageKeyAt(tenantID, purpose, id, filename, time.Now().UTC())
+}
+
+func storageKeyAt(tenantID, purpose, id, filename string, createdAt time.Time) string {
 	filename = path.Base(filename)
 	if filename == "." || filename == "/" {
 		filename = "file"
 	}
-	return path.Join(tenantID, purpose, time.Now().UTC().Format("2006-01"), id, filename)
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	return path.Join(tenantID, purpose, createdAt.UTC().Format("2006-01"), id, filename)
+}
+
+func stagedUploadKey(tenantID, uploadID, filename string) string {
+	filename = path.Base(filename)
+	if filename == "." || filename == "/" {
+		filename = "file"
+	}
+	return path.Join(tenantID, "_uploads", uploadID, filename)
+}
+
+func directFinalKey(sess *store.UploadSession) string {
+	if sess == nil {
+		return ""
+	}
+	stagingPrefix := path.Join(sess.TenantID, "_uploads", sess.ID) + "/"
+	if !strings.HasPrefix(sess.StorageKey, stagingPrefix) {
+		return sess.StorageKey
+	}
+	return storageKeyAt(sess.TenantID, sess.Purpose, sess.AssetID, sess.Filename, sess.CreatedAt)
 }
 
 func shortID() string {

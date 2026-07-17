@@ -689,6 +689,16 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string) error {
 	return nil
 }
 
+func (s *Store) TransitionStatus(ctx context.Context, id, from, to string) (bool, error) {
+	res := s.db.WithContext(ctx).Model(&AssetModel{}).
+		Where("id = ? AND status = ?", id, from).
+		Updates(map[string]any{"status": to, "updated_at": time.Now().UTC()})
+	if res.Error != nil {
+		return false, fmt.Errorf("transition asset status: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
 func (s *Store) SetTags(ctx context.Context, id string, tags []string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var asset AssetModel
@@ -889,6 +899,16 @@ func (s *Store) ClaimSessionCompletion(ctx context.Context, id string, leaseUnti
 		Updates(map[string]any{"status": "completing", "expires_at": leaseUntil})
 	if res.Error != nil {
 		return false, fmt.Errorf("claim upload completion: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
+func (s *Store) ClaimSessionCleanup(ctx context.Context, id, from string, leaseUntil time.Time) (bool, error) {
+	res := s.db.WithContext(ctx).Model(&UploadSessionModel{}).
+		Where("id = ? AND status = ?", id, from).
+		Updates(map[string]any{"status": "cleaning", "expires_at": leaseUntil})
+	if res.Error != nil {
+		return false, fmt.Errorf("claim upload cleanup: %w", res.Error)
 	}
 	return res.RowsAffected == 1, nil
 }

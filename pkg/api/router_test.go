@@ -603,6 +603,10 @@ func TestRouterDirectS3Upload(t *testing.T) {
 	if created.UploadID == "" || created.AssetID == "" || created.URL == "" {
 		t.Fatalf("direct upload create response missing fields: %#v", created)
 	}
+	session, err := ts.db.GetSession(t.Context(), "default", created.UploadID)
+	if err != nil || !strings.Contains(session.StorageKey, "/_uploads/") {
+		t.Fatalf("direct upload session must use staging: session=%#v err=%v", session, err)
+	}
 	putReq, err := http.NewRequest(http.MethodPut, created.URL, bytes.NewBufferString("hello world"))
 	if err != nil {
 		t.Fatal(err)
@@ -636,6 +640,22 @@ func TestRouterDirectS3Upload(t *testing.T) {
 	body := ts.request(t, http.MethodGet, "/v1/assets/"+created.AssetID+"/content", nil, nil)
 	if got := body.Body.String(); got != "hello world" {
 		t.Fatalf("direct content = %q, want hello world", got)
+	}
+	overwriteReq, err := http.NewRequest(http.MethodPut, created.URL, bytes.NewBufferString("overwritten!"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range created.Headers {
+		overwriteReq.Header.Set(key, value)
+	}
+	overwriteResp, err := http.DefaultClient.Do(overwriteReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = overwriteResp.Body.Close()
+	body = ts.request(t, http.MethodGet, "/v1/assets/"+created.AssetID+"/content", nil, nil)
+	if got := body.Body.String(); got != "hello world" {
+		t.Fatalf("completed asset was changed through stale upload URL: %q", got)
 	}
 }
 
@@ -1479,6 +1499,7 @@ type fakeS3Server struct {
 	uploadPartCalls atomic.Int64
 	completeCalls   atomic.Int64
 	abortCalls      atomic.Int64
+	copyCalls       atomic.Int64
 }
 
 func newFakeS3Server(t *testing.T) *fakeS3Server {
@@ -1521,6 +1542,24 @@ func (f *fakeS3Server) handle(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		w.Header().Set("ETag", `"`+etag+`"`)
 		w.WriteHeader(http.StatusOK)
+	case r.Method == http.MethodPut && r.Header.Get("X-Amz-Copy-Source") != "":
+		f.copyCalls.Add(1)
+		rawSource, _ := url.PathUnescape(r.Header.Get("X-Amz-Copy-Source"))
+		sourceKey := strings.TrimPrefix(strings.TrimPrefix(rawSource, "/"), "test-bucket/")
+		f.mu.Lock()
+		data, ok := f.objects[sourceKey]
+		contentType := f.contentTypes[sourceKey]
+		if ok {
+			f.objects[key] = append([]byte(nil), data...)
+			f.contentTypes[key] = contentType
+		}
+		f.mu.Unlock()
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(`<CopyObjectResult><ETag>"fake-etag"</ETag></CopyObjectResult>`))
 	case r.Method == http.MethodPut:
 		data, _ := io.ReadAll(r.Body)
 		sum := md5.Sum(data)
@@ -1559,6 +1598,12 @@ func (f *fakeS3Server) handle(w http.ResponseWriter, r *http.Request) {
 		f.abortCalls.Add(1)
 		f.mu.Lock()
 		delete(f.uploads, r.URL.Query().Get("uploadId"))
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodDelete:
+		f.mu.Lock()
+		delete(f.objects, key)
+		delete(f.contentTypes, key)
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodHead:

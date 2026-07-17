@@ -241,6 +241,7 @@ type AssetRepo interface {
 	Update(ctx context.Context, a *Asset) error
 	Delete(ctx context.Context, tenantID, id string) error
 	UpdateStatus(ctx context.Context, id, status string) error
+	TransitionStatus(ctx context.Context, id, from, to string) (bool, error)
 	SetTags(ctx context.Context, id string, tags []string) error
 	ListExpired(ctx context.Context, now time.Time, limit int) ([]*Asset, error)
 	Stats(ctx context.Context, tenantID string) (*AssetStats, error)
@@ -269,6 +270,7 @@ type UploadRepo interface {
 	ListParts(ctx context.Context, uploadID string) ([]*UploadPart, error)
 	UpdateSessionStatus(ctx context.Context, id, status string) error
 	ClaimSessionCompletion(ctx context.Context, id string, leaseUntil time.Time) (bool, error)
+	ClaimSessionCleanup(ctx context.Context, id, from string, leaseUntil time.Time) (bool, error)
 	TransitionSessionStatus(ctx context.Context, id, from, to string) (bool, error)
 	DeleteSession(ctx context.Context, id string) error
 	ListExpiredSessions(ctx context.Context, now time.Time, limit int) ([]*UploadSession, error)
