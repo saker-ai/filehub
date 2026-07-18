@@ -2,6 +2,7 @@ package gormstore
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,38 @@ type Store struct {
 	db *gorm.DB
 }
 
+type connectionPoolConfig struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+	connMaxIdleTime time.Duration
+}
+
+func connectionPoolConfigForDSN(dsn string) connectionPoolConfig {
+	if strings.HasPrefix(dsn, "sqlite://") {
+		// A SQLite in-memory database belongs to its connection. Keep the single
+		// connection alive so pool rotation cannot replace the migrated schema
+		// with a fresh, empty database. The same policy avoids needless churn and
+		// locking for file-backed SQLite.
+		return connectionPoolConfig{
+			maxOpenConns: 1,
+			maxIdleConns: 1,
+		}
+	}
+	return connectionPoolConfig{
+		maxOpenConns:    25,
+		maxIdleConns:    10,
+		connMaxLifetime: 5 * time.Minute,
+	}
+}
+
+func (c connectionPoolConfig) apply(db *sql.DB) {
+	db.SetMaxOpenConns(c.maxOpenConns)
+	db.SetMaxIdleConns(c.maxIdleConns)
+	db.SetConnMaxLifetime(c.connMaxLifetime)
+	db.SetConnMaxIdleTime(c.connMaxIdleTime)
+}
+
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	db, err := openDB(dsn)
 	if err != nil {
@@ -31,14 +64,13 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("database handle: %w", err)
 	}
-	if strings.HasPrefix(dsn, "sqlite://") {
-		sqlDB.SetMaxOpenConns(1)
-		sqlDB.SetMaxIdleConns(1)
-	} else {
-		sqlDB.SetMaxOpenConns(25)
-		sqlDB.SetMaxIdleConns(10)
-	}
-	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			_ = sqlDB.Close()
+		}
+	}()
+	connectionPoolConfigForDSN(dsn).apply(sqlDB)
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("database ping: %w", err)
 	}
@@ -49,6 +81,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err := out.ensureMetadataIndex(ctx); err != nil {
 		return nil, err
 	}
+	closeOnError = false
 	return out, nil
 }
 

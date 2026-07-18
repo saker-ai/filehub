@@ -40,6 +40,73 @@ func TestStoreCreateDedupeKeyUniqueOnlyWhenSet(t *testing.T) {
 	}
 }
 
+func TestConnectionPoolConfigForDSN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dsn  string
+		want connectionPoolConfig
+	}{
+		{
+			name: "sqlite file",
+			dsn:  "sqlite:///tmp/filehub.db",
+			want: connectionPoolConfig{maxOpenConns: 1, maxIdleConns: 1},
+		},
+		{
+			name: "sqlite memory",
+			dsn:  "sqlite://:memory:",
+			want: connectionPoolConfig{maxOpenConns: 1, maxIdleConns: 1},
+		},
+		{
+			name: "sqlite shared memory",
+			dsn:  "sqlite://file:filehub?mode=memory&cache=shared",
+			want: connectionPoolConfig{maxOpenConns: 1, maxIdleConns: 1},
+		},
+		{
+			name: "postgres",
+			dsn:  "postgres://localhost/filehub",
+			want: connectionPoolConfig{
+				maxOpenConns:    25,
+				maxIdleConns:    10,
+				connMaxLifetime: 5 * time.Minute,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := connectionPoolConfigForDSN(tt.dsn); got != tt.want {
+				t.Fatalf("connectionPoolConfigForDSN(%q) = %#v, want %#v", tt.dsn, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStoreSQLiteMemoryCreateAndGet(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := Open(ctx, "sqlite://:memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	asset := testAsset("asset-memory", "memory.txt", "sha256:memory")
+	if err := db.Create(ctx, asset); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	loaded, err := db.Get(ctx, asset.TenantID, asset.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if loaded.ID != asset.ID {
+		t.Fatalf("loaded asset ID = %q, want %q", loaded.ID, asset.ID)
+	}
+}
+
 func TestStoreListFiltersByMetadata(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
