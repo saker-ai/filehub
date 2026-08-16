@@ -44,6 +44,20 @@ type Config struct {
 	MetricsPath           string             `json:"metrics_path" yaml:"metrics_path"`
 	WebEnabled            bool               `json:"web_enabled" yaml:"web_enabled"`
 	WebHubNotify          WebHubNotifyConfig `json:"webhub_notify" yaml:"webhub_notify"`
+	Workspaces            WorkspacesConfig   `json:"workspaces" yaml:"workspaces"`
+}
+
+// WorkspacesConfig controls the Workspace Sync feature (doc §8, §13).
+// Zero limits fall back to the documented defaults inside the workspace
+// service; configuration may lower but never raise them.
+type WorkspacesConfig struct {
+	Enabled             bool  `json:"enabled" yaml:"enabled"`
+	MaxCommitBodyBytes  int64 `json:"max_commit_body_bytes" yaml:"max_commit_body_bytes"`
+	MaxCommitOperations int   `json:"max_commit_operations" yaml:"max_commit_operations"`
+	MaxPathBytes        int   `json:"max_path_bytes" yaml:"max_path_bytes"`
+	MaxPathSegmentBytes int   `json:"max_path_segment_bytes" yaml:"max_path_segment_bytes"`
+	MaxNoteBytes        int   `json:"max_note_bytes" yaml:"max_note_bytes"`
+	MaxReadEventBatch   int   `json:"max_read_event_batch" yaml:"max_read_event_batch"`
 }
 
 type WebHubNotifyConfig struct {
@@ -277,6 +291,13 @@ func applyEnv(c *Config) {
 	setString("FILEHUB_WEBHUB_NOTIFY_API_KEY", &c.WebHubNotify.APIKey)
 	setString("FILEHUB_WEBHUB_NOTIFY_AUDIENCE", &c.WebHubNotify.Audience)
 	setString("FILEHUB_WEBHUB_NOTIFY_SCOPE", &c.WebHubNotify.Scope)
+	setBool("FILEHUB_WORKSPACES_ENABLED", &c.Workspaces.Enabled)
+	setInt64("FILEHUB_WORKSPACES_MAX_COMMIT_BODY_BYTES", &c.Workspaces.MaxCommitBodyBytes)
+	setInt("FILEHUB_WORKSPACES_MAX_COMMIT_OPERATIONS", &c.Workspaces.MaxCommitOperations)
+	setInt("FILEHUB_WORKSPACES_MAX_PATH_BYTES", &c.Workspaces.MaxPathBytes)
+	setInt("FILEHUB_WORKSPACES_MAX_PATH_SEGMENT_BYTES", &c.Workspaces.MaxPathSegmentBytes)
+	setInt("FILEHUB_WORKSPACES_MAX_NOTE_BYTES", &c.Workspaces.MaxNoteBytes)
+	setInt("FILEHUB_WORKSPACES_MAX_READ_EVENT_BATCH", &c.Workspaces.MaxReadEventBatch)
 }
 
 func csvEnv(key string) []string {

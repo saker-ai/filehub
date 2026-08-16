@@ -8,6 +8,7 @@ export const resources = {
     translation: {
       dashboard: 'Dashboard',
       assets: 'Assets',
+      workspaces: 'Workspaces',
       runCompare: 'Run Compare',
       runCompareSubtitle: 'Compare tuned video generation runs by aligned prompt or task.',
       runCompareControls: 'Run comparison controls',
@@ -162,6 +163,7 @@ export const resources = {
     translation: {
       dashboard: '仪表盘',
       assets: '资产',
+      workspaces: '工作区',
       runCompare: 'Run 对比',
       runCompareSubtitle: '按 Prompt 或任务对齐，对比多次调参后的视频生成结果。',
       runCompareControls: 'Run 对比控制',

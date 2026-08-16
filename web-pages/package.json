@@ -17,7 +17,8 @@
     "./asset-compare": "./src/pages/AssetCompare.tsx",
     "./run-compare": "./src/pages/RunCompare.tsx",
     "./reviews": "./src/pages/Reviews.tsx",
-    "./shared-assets": "./src/pages/SharedAssets.tsx"
+    "./shared-assets": "./src/pages/SharedAssets.tsx",
+    "./workspaces": "./src/pages/Workspaces.tsx"
   },
   "dependencies": {
     "@google/model-viewer": "^4.3.1",

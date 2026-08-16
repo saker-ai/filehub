@@ -16,16 +16,20 @@ import (
 	"github.com/saker-ai/filehub/pkg/storage"
 	"github.com/saker-ai/filehub/pkg/store"
 	"github.com/saker-ai/filehub/pkg/store/gormstore"
+	"github.com/saker-ai/filehub/pkg/workspace"
+	"github.com/saker-ai/filehub/pkg/workspace/gormrepo"
+	"github.com/saker-ai/filehub/pkg/workspaceapi"
 )
 
 type Server struct {
-	cfg      config.Config
-	http     *http.Server
-	db       *gormstore.Store
-	blobs    *storage.Store
-	metrics  *api.Metrics
-	pipeline *processing.Pipeline
-	logger   *slog.Logger
+	cfg        config.Config
+	http       *http.Server
+	db         *gormstore.Store
+	blobs      *storage.Store
+	metrics    *api.Metrics
+	pipeline   *processing.Pipeline
+	workspaces *workspace.Service
+	logger     *slog.Logger
 }
 
 func New(ctx context.Context, cfg config.Config) (*Server, error) {
@@ -47,6 +51,23 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 	metrics := api.NewMetrics()
 	pipeline := processing.New(cfg.ProcessingConcurrency, blobs, db, logger)
 	pipeline.ObserveProcessing(metrics.ObserveProcessing)
+	var workspaceService *workspace.Service
+	if cfg.Workspaces.Enabled {
+		repo, err := gormrepo.New(ctx, db.DB())
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("build workspace repository: %w", err)
+		}
+		workspaceService = workspace.New(repo, db, workspace.Limits{
+			MaxCommitBodyBytes:  cfg.Workspaces.MaxCommitBodyBytes,
+			MaxCommitOperations: cfg.Workspaces.MaxCommitOperations,
+			MaxPathBytes:        cfg.Workspaces.MaxPathBytes,
+			MaxPathSegmentBytes: cfg.Workspaces.MaxPathSegmentBytes,
+			MaxNoteBytes:        cfg.Workspaces.MaxNoteBytes,
+			MaxReadEventBatch:   cfg.Workspaces.MaxReadEventBatch,
+		})
+		logger.Info("workspace sync enabled")
+	}
 	reviewCreatedHook, err := filehubnotify.NewReviewCreatedHook(cfg.WebHubNotify, logger)
 	if err != nil {
 		_ = db.Close()
@@ -54,16 +75,18 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 	}
 	router := api.NewRouter(api.RouterDeps{
 		Config: cfg, Assets: db, Uploads: db, AIReviews: db, Reviews: db, Storage: blobs, Pipeline: pipeline, Metrics: metrics,
+		Workspaces:        workspaceapi.Deps{Service: workspaceService, Assets: db, Storage: blobs, Metrics: metrics},
 		ReviewCreatedHook: reviewCreatedHook,
 	})
 	return &Server{
-		cfg:      cfg,
-		http:     &http.Server{Addr: cfg.Addr, Handler: router, ReadHeaderTimeout: 10 * time.Second},
-		db:       db,
-		blobs:    blobs,
-		metrics:  metrics,
-		pipeline: pipeline,
-		logger:   logger,
+		cfg:        cfg,
+		http:       &http.Server{Addr: cfg.Addr, Handler: router, ReadHeaderTimeout: 10 * time.Second},
+		db:         db,
+		blobs:      blobs,
+		metrics:    metrics,
+		pipeline:   pipeline,
+		workspaces: workspaceService,
+		logger:     logger,
 	}, nil
 }
 
@@ -199,6 +222,16 @@ func (s *Server) cleanupUploadSession(ctx context.Context, session *store.Upload
 }
 
 func (s *Server) deleteAsset(ctx context.Context, asset *store.Asset) error {
+	if s.workspaces != nil {
+		referenced, err := s.workspaces.AssetReferenced(ctx, asset.TenantID, asset.ID)
+		if err != nil {
+			return fmt.Errorf("workspace reference check: %w", err)
+		}
+		if referenced {
+			s.logger.Warn("asset gc skipped: referenced by workspace revision", "asset_id", asset.ID)
+			return nil
+		}
+	}
 	var out error
 	if err := s.blobs.Delete(ctx, asset.StorageKey); err != nil {
 		out = errors.Join(out, err)

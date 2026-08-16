@@ -21,6 +21,11 @@ const tenantKey = "tenant_id"
 const assetIDKey = "asset_id"
 const scopesKey = "scopes"
 
+// actorIDKey records the authenticated principal identity for audit fields
+// (workspace revisions record it as ActorID). API-key authentication has no
+// principal identity and leaves it unset.
+const actorIDKey = "workspace_actor_id"
+
 func CORSMiddleware(origins []string) gin.HandlerFunc {
 	allowAll := len(origins) == 0
 	for _, origin := range origins {
@@ -137,6 +142,13 @@ func Auth(cfg config.Config) gin.HandlerFunc {
 				}
 				c.Set(tenantKey, principal.TenantID)
 				c.Set(scopesKey, principal.Scopes)
+				if principal.ID != "" {
+					actorID := principal.ID
+					if principal.Type != "" {
+						actorID = principal.Type + ":" + principal.ID
+					}
+					c.Set(actorIDKey, actorID)
+				}
 				c.Next()
 				return
 			}

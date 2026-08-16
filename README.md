@@ -29,6 +29,20 @@ FILEHUB_PRESIGN_SECRET=change-me
 FILEHUB_PID_FILE=.synapse/stack/filehub.pid
 ```
 
+Workspace Sync is opt-in. When enabled, FileHub serves the `/v1/workspaces`
+API described below:
+
+```bash
+FILEHUB_WORKSPACES_ENABLED=true
+# Optional: lower (never raise) the documented hard limits
+FILEHUB_WORKSPACES_MAX_COMMIT_BODY_BYTES=2097152
+FILEHUB_WORKSPACES_MAX_COMMIT_OPERATIONS=1000
+FILEHUB_WORKSPACES_MAX_PATH_BYTES=4096
+FILEHUB_WORKSPACES_MAX_PATH_SEGMENT_BYTES=255
+FILEHUB_WORKSPACES_MAX_NOTE_BYTES=1024
+FILEHUB_WORKSPACES_MAX_READ_EVENT_BATCH=1000
+```
+
 OSS uses the `FILEHUB_OSS_*` names:
 
 ```bash
@@ -154,6 +168,66 @@ download URL lifetime. Request fields accept both camelCase and snake_case.
 Local filesystem storage continues to use `POST|PUT /assets` because it cannot
 issue a provider-native upload URL.
 
+## Workspace Sync
+
+FileHub can act as the sync backend for shared Saker workspaces. Enable it with
+`FILEHUB_WORKSPACES_ENABLED=true`. A workspace is a tenant-scoped directory of
+versioned paths; every path revision references an immutable FileHub asset, so
+file bytes stay in the existing asset data plane while the workspace tracks
+paths, versions, and change history.
+
+Workspaces and sync:
+
+```bash
+# Create a workspace
+curl -X POST http://127.0.0.1:17040/v1/workspaces \
+  -H 'Authorization: Bearer <key>' -H 'Content-Type: application/json' \
+  -d '{"name":"team-sync"}'
+
+# List / inspect / soft-delete
+curl http://127.0.0.1:17040/v1/workspaces
+curl http://127.0.0.1:17040/v1/workspaces/<id>
+curl -X DELETE http://127.0.0.1:17040/v1/workspaces/<id>
+
+# Browse current tree, one entry, history, and incremental changes
+curl 'http://127.0.0.1:17040/v1/workspaces/<id>/tree?prefix=docs/'
+curl 'http://127.0.0.1:17040/v1/workspaces/<id>/entries?path=docs/report.md'
+curl 'http://127.0.0.1:17040/v1/workspaces/<id>/history?path=docs/report.md'
+curl 'http://127.0.0.1:17040/v1/workspaces/<id>/changes?after=0'
+```
+
+Atomic commit applies many `put`/`delete` operations in one transaction and is
+idempotent per `Idempotency-Key`. Every operation carries the client-visible
+`base_revision_id`; a stale base redirects a `put` to a deterministic
+`*.saker-conflict-<device8>-<request8>-<ext>` path and keeps the remote version
+for a stale `delete`:
+
+```bash
+curl -X POST http://127.0.0.1:17040/v1/workspaces/<id>/commits \
+  -H 'Authorization: Bearer <key>' -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: 7f1c…' \
+  -d '{"device_id":"dev-1","session_id":"sess-1","operations":[
+        {"kind":"put","path":"docs/report.md","asset_id":"asset-…","base_revision_id":"wrev-…"}]}'
+```
+
+Referenced assets are protected: an asset referenced by any workspace revision
+cannot be removed by single delete, bulk delete, or expiry GC (those paths skip
+it), and committing a reference clears the asset's expiry eligibility.
+
+Public sharing and read stats:
+
+```bash
+curl -X POST http://127.0.0.1:17040/v1/workspaces/<id>/shares \
+  -d '{"path":"docs/report.md","expires_in":"24h"}'   # token returned once
+curl http://127.0.0.1:17040/s/<token>                 # anonymous, sandboxed
+curl -X POST http://127.0.0.1:17040/v1/workspaces/<id>/read-events \
+  -d '{"events":[{"path":"docs/report.md","kind":"agent","count":1}]}'
+curl 'http://127.0.0.1:17040/v1/workspaces/<id>/read-stats?days=30'
+```
+
+The workspace API is documented in the OpenAPI schema at
+`/v1/openapi.json`. Metrics are exported as `filehub_workspace_*` counters.
+
 ## Web UI
 
-The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them.
+The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them. When Workspace Sync is enabled, a Workspaces page lists workspaces and lets you browse the tree, history, shares, and read stats.

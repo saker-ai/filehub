@@ -29,6 +29,7 @@ import (
 	"github.com/saker-ai/filehub/pkg/processing"
 	blob "github.com/saker-ai/filehub/pkg/storage"
 	"github.com/saker-ai/filehub/pkg/store"
+	"github.com/saker-ai/filehub/pkg/workspaceapi"
 	"github.com/saker-ai/filehub/web"
 )
 
@@ -41,6 +42,10 @@ type RouterDeps struct {
 	Storage   *blob.Store
 	Pipeline  *processing.Pipeline
 	Metrics   *Metrics
+	// Workspaces carries the Workspace Sync subsystem (doc §8). When
+	// Workspaces.Service is nil the /v1/workspaces routes are not mounted
+	// and behavior is byte-identical to pre-workspace builds (doc §13).
+	Workspaces workspaceapi.Deps
 	// ReviewCreatedHook is invoked after a human review task is created.
 	// Optional; when nil, no notification is emitted.
 	ReviewCreatedHook filehubnotify.ReviewCreatedFunc
@@ -55,7 +60,13 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	r := gin.New()
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.Use(gin.Recovery(), CORSMiddleware(deps.Config.CORSOrigins), RequestID(), RateLimit(deps.Config.RatePerSec, deps.Config.RateBurst), MetricsMiddleware(deps.Metrics), RequestLogger(nil), Auth(deps.Config))
-	RegisterHumaDocs(r)
+	humaSetup := RegisterHumaDocs(r)
+	if deps.Workspaces.Service != nil {
+		// Docs-only: adds the workspace operations to the OpenAPI document
+		// without registering runtime huma handlers (gin handlers are
+		// registered separately by workspaceapi.Register).
+		workspaceapi.RegisterDocs(NewDocOnlyAPI(humaSetup.API))
+	}
 	if deps.Config.MetricsEnabled {
 		path := deps.Config.MetricsPath
 		if path == "" {
@@ -102,6 +113,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 		})
 	}
 	v1 := r.Group("/v1")
+	if deps.Workspaces.Service != nil {
+		workspaceapi.Register(v1, r, deps.Workspaces)
+	}
 	v1.POST("/files", h.createFile)
 	v1.GET("/files", h.listFiles)
 	v1.GET("/files/:id", h.getFile)
@@ -719,6 +733,10 @@ func (h handler) delete(c *gin.Context, file bool) {
 		writeErr(c, err)
 		return
 	}
+	if h.assetWorkspaceReferenced(c, a.ID) {
+		writeError(c, http.StatusConflict, "asset_referenced", "asset is referenced by a workspace revision and cannot be deleted")
+		return
+	}
 	_ = h.deps.Storage.Delete(c.Request.Context(), a.StorageKey)
 	_ = h.deps.Storage.DeleteRecursive(c.Request.Context(), "_thumbs/"+a.ID+"/")
 	if err := h.deps.Assets.Delete(c.Request.Context(), Tenant(c), a.ID); err != nil {
@@ -731,6 +749,23 @@ func (h handler) delete(c *gin.Context, file bool) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": a.ID, "object": "asset", "deleted": true})
+}
+
+// assetWorkspaceReferenced reports whether any workspace revision references
+// the asset (FH-11, doc §8.3). Without a configured workspace subsystem the
+// historical delete behavior is preserved.
+func (h handler) assetWorkspaceReferenced(c *gin.Context, assetID string) bool {
+	svc := h.deps.Workspaces.Service
+	if svc == nil {
+		return false
+	}
+	referenced, err := svc.AssetReferenced(c.Request.Context(), Tenant(c), assetID)
+	if err != nil {
+		// Fail closed: a reference check failure must not allow deleting
+		// history blobs.
+		return true
+	}
+	return referenced
 }
 
 func (h handler) getContent(c *gin.Context) {
@@ -1313,6 +1348,10 @@ func (h handler) bulkDelete(c *gin.Context) {
 	}
 	results := make([]gin.H, 0, len(req.IDs))
 	for _, id := range req.IDs {
+		if h.assetWorkspaceReferenced(c, id) {
+			results = append(results, gin.H{"id": id, "deleted": false, "error": "asset_referenced"})
+			continue
+		}
 		a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id)
 		if err == nil {
 			_ = h.deps.Storage.Delete(c.Request.Context(), a.StorageKey)

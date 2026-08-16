@@ -132,6 +132,14 @@ func (s *Store) Close() error {
 	return sqlDB.Close()
 }
 
+// DB exposes the underlying GORM handle so sibling persistence packages
+// (for example pkg/workspace/gormrepo) can share the connection pool and
+// participate in the same migrations lifecycle. Callers must not use it to
+// bypass tenant scoping.
+func (s *Store) DB() *gorm.DB {
+	return s.db
+}
+
 func (s *Store) Create(ctx context.Context, a *store.Asset) error {
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = time.Now().UTC()
