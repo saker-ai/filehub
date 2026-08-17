@@ -25,10 +25,12 @@
     "@saker/filehub-client": "workspace:*",
     "@saker/web-shared": "workspace:*",
     "@shikijs/engine-javascript": "^4.2.0",
+    "docx-preview": "^0.3.5",
     "dompurify": "^3.4.10",
     "marked": "^18.0.5",
     "shiki": "^4.2.0",
-    "wavesurfer.js": "^7.12.8"
+    "wavesurfer.js": "^7.12.8",
+    "xlsx": "^0.18.5"
   },
   "peerDependencies": {
     "react": "^19.0.0",

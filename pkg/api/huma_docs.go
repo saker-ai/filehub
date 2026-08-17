@@ -367,6 +367,7 @@ func registerOpenAPIDocs(api huma.API) {
 	registerDoc[docPresignInput, docPresignOutput](api, http.MethodPost, "/v1/assets/{id}/presign", "presign-asset", "Assets", "Create presigned download URL", security)
 	registerDoc[docDownloadInput, struct{}](api, http.MethodGet, "/v1/assets/{id}/content", "download-asset", "Assets", "Download asset content", security)
 	registerDoc[docThumbnailInput, struct{}](api, http.MethodGet, "/v1/assets/{id}/thumbnail", "asset-thumbnail", "Assets", "Get or generate asset thumbnail", security)
+	registerDoc[docIDInput, struct{}](api, http.MethodGet, "/v1/assets/{id}/preview", "asset-preview", "Assets", "Browser-renderable preview; office documents are converted to PDF via LibreOffice when installed, else 404", security)
 
 	registerDoc[struct{}, docExternalAssetOutput](api, http.MethodPost, "/v1/external/assets", "external-upload-asset", "External Asset API", "Upload an asset using multipart form data", security)
 	registerDoc[struct{}, docExternalAssetOutput](api, http.MethodPut, "/v1/external/assets", "external-put-asset", "External Asset API", "Upload an asset as a byte stream", security)

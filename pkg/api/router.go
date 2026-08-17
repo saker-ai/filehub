@@ -139,6 +139,7 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	v1.POST("/assets/:id/presign", h.presign)
 	v1.GET("/assets/:id/content", h.getContent)
 	v1.GET("/assets/:id/thumbnail", h.thumbnail)
+	v1.GET("/assets/:id/preview", h.previewAsset)
 	v1.POST("/external/assets", h.createExternalAsset)
 	v1.PUT("/external/assets", h.putExternalAsset)
 	v1.GET("/external/assets/:id", h.getContent)
@@ -1323,6 +1324,32 @@ func (h handler) thumbnail(c *gin.Context) {
 	}
 	defer func() { _ = rc.Close() }()
 	c.DataFromReader(http.StatusOK, -1, contentType, rc, nil)
+}
+
+// previewAsset serves a browser-renderable preview of a document. Office
+// formats that cannot be rendered client-side (ppt/pptx/doc/xls/odp) are
+// converted to PDF via LibreOffice when it is installed; otherwise the
+// handler answers 404 so clients fall back to downloading the original.
+func (h handler) previewAsset(c *gin.Context) {
+	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	rc, err := h.deps.Pipeline.GeneratePreviewPDF(c.Request.Context(), a)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	defer func() { _ = rc.Close() }()
+	base := a.Filename
+	if ext := path.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	c.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": base + ".pdf"}))
+	c.Header("Cache-Control", "private, max-age=3600")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.DataFromReader(http.StatusOK, -1, "application/pdf", rc, nil)
 }
 
 func (h handler) stats(c *gin.Context) {

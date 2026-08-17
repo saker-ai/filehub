@@ -4,6 +4,7 @@ import { assetContentURL, deleteAsset, fetchAssetContentBlob, fetchAssetText, ge
 import { CodeBlock } from '../components/CodeBlock'
 import { formatBytes } from '../components/AssetCard'
 import { AuthAudio, AuthFrame, AuthImage, AuthVideo, useAuthObjectURL } from '../components/AuthMedia'
+import { DocxPreview, ServerOfficePreview, SheetPreview, officeKindFor, serverOfficeKindFor } from '../components/OfficePreview'
 import { AIReviewResults } from '../components/AIReviews'
 
 export function AssetDetail({ assetID, positionLabel, canNavigatePrev = true, canNavigateNext = true, onClose, onNavigate }: { assetID: string; positionLabel?: string; canNavigatePrev?: boolean; canNavigateNext?: boolean; onClose: () => void; onNavigate?: (direction: -1 | 1) => void }) {
@@ -152,6 +153,11 @@ function Preview({ asset }: { asset: Asset }) {
   if (type.startsWith('audio/')) return <AudioPreview src={src} />
   if (type === 'application/pdf') return <AuthFrame src={src} title={asset.filename} />
   if (type.startsWith('model/') || /\.(glb|gltf)$/i.test(asset.filename)) return <ModelPreview src={src} />
+  const officeKind = officeKindFor(asset.filename, type)
+  if (officeKind === 'docx') return <DocxPreview assetID={asset.id} bytes={asset.bytes} />
+  if (officeKind === 'sheet') return <SheetPreview assetID={asset.id} bytes={asset.bytes} />
+  if (officeKind === 'csv') return <SheetPreview assetID={asset.id} bytes={asset.bytes} delimiter={/\.tsv$/i.test(asset.filename) ? '\t' : ','} />
+  if (serverOfficeKindFor(asset.filename, type)) return <ServerOfficePreview assetID={asset.id} filename={asset.filename} />
   if (type.startsWith('text/') || type.includes('json') || type.includes('xml') || /\.md$/i.test(asset.filename)) return <TextPreview assetID={asset.id} filename={asset.filename} />
   return <div className="file-preview">{t('file')}</div>
 }
@@ -248,6 +254,9 @@ function TextPreview({ assetID, filename }: { assetID: string; filename: string 
     void Promise.all([highlightCode(text, lang), import('dompurify')]).then(([html, { default: DOMPurify }]) => {
       if (cancelled) return
       setHighlighted(DOMPurify.sanitize(html))
+    }).catch(() => {
+      // Grammar failed to load/embed; fall back to the plain <pre> below.
+      if (!cancelled) setHighlighted('')
     })
     return () => {
       cancelled = true
@@ -292,12 +301,30 @@ function AIInfo({ metadata, title }: { metadata: Record<string, unknown>; title:
 function languageFor(filename: string) {
   if (/\.jsonl?$/i.test(filename)) return 'json'
   if (/\.ya?ml$/i.test(filename)) return 'yaml'
-  if (/\.xml$/i.test(filename)) return 'xml'
-  if (/\.tsx?$/i.test(filename)) return 'tsx'
-  if (/\.jsx?$/i.test(filename)) return 'jsx'
+  if (/\.xml$|\.csproj$|\.svg$/i.test(filename)) return 'xml'
+  if (/\.tsx$/i.test(filename)) return 'tsx'
+  if (/\.jsx$/i.test(filename)) return 'jsx'
+  if (/\.ts$/i.test(filename)) return 'typescript'
+  if (/\.js$|\.mjs$|\.cjs$/i.test(filename)) return 'javascript'
   if (/\.go$/i.test(filename)) return 'go'
-  if (/\.py$/i.test(filename)) return 'python'
-  if (/\.sh$/i.test(filename)) return 'bash'
+  if (/\.py$|\.pyi$/i.test(filename)) return 'python'
+  if (/\.sh$|\.bash$|\.zsh$/i.test(filename)) return 'bash'
+  if (/\.rs$/i.test(filename)) return 'rust'
+  if (/\.java$/i.test(filename)) return 'java'
+  if (/\.c$|\.h$/i.test(filename)) return 'c'
+  if (/\.cpp$|\.cc$|\.cxx$|\.hpp$|\.hh$|\.hxx$/i.test(filename)) return 'cpp'
+  if (/\.cs$/i.test(filename)) return 'csharp'
+  if (/\.sql$/i.test(filename)) return 'sql'
+  if (/\.toml$/i.test(filename)) return 'toml'
+  if (/\.ini$|\.cfg$|\.conf$|\.properties$/i.test(filename)) return 'ini'
+  if (/^dockerfile$/i.test(filename) || /\.dockerfile$/i.test(filename)) return 'dockerfile'
+  if (/\.rb$/i.test(filename)) return 'ruby'
+  if (/\.swift$/i.test(filename)) return 'swift'
+  if (/\.kt$|\.kts$/i.test(filename)) return 'kotlin'
+  if (/\.css$/i.test(filename)) return 'css'
+  if (/\.html?$/.test(filename)) return 'html'
+  if (/\.graphql$|\.gql$/i.test(filename)) return 'graphql'
+  if (/\.proto$/i.test(filename)) return 'proto'
   return ''
 }
 
@@ -323,12 +350,30 @@ async function loadHighlighter() {
     import('shiki/langs/xml.mjs'),
     import('shiki/langs/tsx.mjs'),
     import('shiki/langs/jsx.mjs'),
+    import('shiki/langs/typescript.mjs'),
+    import('shiki/langs/javascript.mjs'),
     import('shiki/langs/go.mjs'),
     import('shiki/langs/python.mjs'),
     import('shiki/langs/bash.mjs'),
-  ]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }, theme, json, yaml, xml, tsx, jsx, go, python, bash]) => createHighlighterCore({
+    import('shiki/langs/rust.mjs'),
+    import('shiki/langs/java.mjs'),
+    import('shiki/langs/c.mjs'),
+    import('shiki/langs/cpp.mjs'),
+    import('shiki/langs/csharp.mjs'),
+    import('shiki/langs/sql.mjs'),
+    import('shiki/langs/toml.mjs'),
+    import('shiki/langs/ini.mjs'),
+    import('shiki/langs/dockerfile.mjs'),
+    import('shiki/langs/ruby.mjs'),
+    import('shiki/langs/swift.mjs'),
+    import('shiki/langs/kotlin.mjs'),
+    import('shiki/langs/css.mjs'),
+    import('shiki/langs/html.mjs'),
+    import('shiki/langs/graphql.mjs'),
+    import('shiki/langs/proto.mjs'),
+  ]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }, theme, ...langs]) => createHighlighterCore({
     themes: [theme.default],
-    langs: [json.default, yaml.default, xml.default, tsx.default, jsx.default, go.default, python.default, bash.default],
+    langs: langs.map((lang) => lang.default),
     engine: createJavaScriptRegexEngine(),
   }))
   return highlighterPromise

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -177,6 +178,96 @@ func (p *Pipeline) GenerateThumbnail(ctx context.Context, asset *store.Asset, w,
 		return nil, "", err
 	}
 	return rc, thumbnailContentType(format), nil
+}
+
+// officePreviewSupported reports whether a document is an office format that
+// cannot be rendered client-side and is therefore a candidate for server-side
+// LibreOffice conversion to PDF.
+func officePreviewSupported(asset *store.Asset) bool {
+	name := strings.ToLower(asset.Filename)
+	switch {
+	case strings.HasSuffix(name, ".pptx"),
+		strings.HasSuffix(name, ".ppt"),
+		strings.HasSuffix(name, ".doc"),
+		strings.HasSuffix(name, ".xls"),
+		strings.HasSuffix(name, ".odp"):
+		return true
+	}
+	switch asset.ContentType {
+	case "application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"application/msword",
+		"application/vnd.ms-excel":
+		return true
+	}
+	return false
+}
+
+// GeneratePreviewPDF returns a PDF rendering of an office document, converting
+// it with LibreOffice headless on first use and caching the result under the
+// preview key. It returns store.ErrNotFound when the document type is not
+// previewable or when soffice is not installed, so the API layer answers 404
+// and clients fall back to downloading the original file.
+func (p *Pipeline) GeneratePreviewPDF(ctx context.Context, asset *store.Asset) (io.ReadCloser, error) {
+	key := storage.PreviewKey(asset.ID)
+	if rc, err := p.storage.Get(ctx, key); err == nil {
+		return rc, nil
+	}
+	if !officePreviewSupported(asset) {
+		return nil, store.ErrNotFound
+	}
+	if _, err := exec.LookPath("soffice"); err != nil {
+		p.logger.Warn("office preview unavailable: soffice not installed", "asset_id", asset.ID)
+		return nil, store.ErrNotFound
+	}
+	data, err := p.storage.ReadAll(ctx, asset.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	pdf, err := convertOfficeToPDF(ctx, asset.Filename, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.storage.PutBytes(ctx, key, pdf); err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(pdf)), nil
+}
+
+// convertOfficeToPDF writes the document to a temp directory and runs
+// LibreOffice headless to produce a PDF, returning the PDF bytes.
+func convertOfficeToPDF(ctx context.Context, filename string, data []byte) ([]byte, error) {
+	dir, err := os.MkdirTemp("", "filehub-preview-*")
+	if err != nil {
+		return nil, fmt.Errorf("create preview temp dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	base := filepath.Base(filename)
+	if base == "." || base == "/" || base == "" {
+		base = "document"
+	}
+	src := filepath.Join(dir, base)
+	if err := os.WriteFile(src, data, 0o600); err != nil {
+		return nil, fmt.Errorf("write preview source: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "soffice", "--headless", "--norestore", "--convert-to", "pdf", "--outdir", dir, src)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("libreoffice convert: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	pdfName := strings.TrimSuffix(base, filepath.Ext(base)) + ".pdf"
+	pdf, err := os.ReadFile(filepath.Join(dir, pdfName))
+	if err != nil {
+		return nil, fmt.Errorf("read converted pdf: %w", err)
+	}
+	if len(pdf) == 0 {
+		return nil, fmt.Errorf("converted pdf is empty")
+	}
+	return pdf, nil
 }
 
 func (p *Pipeline) generateImageThumbnail(ctx context.Context, assetID string, data []byte, w, h int, format string) error {

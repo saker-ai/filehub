@@ -1042,6 +1042,97 @@ progress {
   width: 100%;
 }
 
+.docx-preview-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.docx-preview-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  max-height: 640px;
+  overflow: auto;
+  padding: 16px;
+  width: 100%;
+}
+
+.docx-preview-container .docx-wrapper {
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+}
+
+.docx-preview-container section.docx {
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+  color: #1a1a1a;
+  margin: 0 auto;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.sheet-preview {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.sheet-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sheet-tabs button {
+  background: var(--bg-secondary);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+}
+
+.sheet-tabs button.active {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sheet-table-wrap {
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  max-height: 560px;
+  overflow: auto;
+  width: 100%;
+}
+
+.sheet-table {
+  border-collapse: collapse;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.78rem;
+  min-width: 100%;
+  white-space: nowrap;
+}
+
+.sheet-table td {
+  border: 1px solid var(--card-border);
+  max-width: 320px;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+}
+
+.sheet-table tr:first-child td {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+
 .ai-info {
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);

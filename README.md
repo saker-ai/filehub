@@ -231,3 +231,29 @@ The workspace API is documented in the OpenAPI schema at
 ## Web UI
 
 The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them. When Workspace Sync is enabled, a Workspaces page lists workspaces and lets you browse the tree, history, shares, and read stats.
+
+## In-browser file previews
+
+The asset detail view renders many file types directly in the browser. All
+renderers are lazy-loaded, so heavy libraries are only fetched when a matching
+asset is opened.
+
+Client-side (no server conversion):
+
+- Images (`image/*`), video (`video/*`), audio (`audio/*` with waveform), PDF.
+- 3D models (`.glb`/`.gltf`) via the model viewer.
+- Word documents (`.docx`) rendered to HTML via `docx-preview`.
+- Spreadsheets (`.xlsx`/`.xlsm`/`.ods`) and delimited text (`.csv`/`.tsv`)
+  rendered as tables via SheetJS, with per-sheet tabs. Formulas show their
+  cached values; charts and macros are not rendered.
+- Markdown, JSON, and a broad set of source-code languages with syntax
+  highlighting (shiki).
+
+Server-side (optional, requires LibreOffice):
+
+- Presentations and legacy Office files (`.pptx`/`.ppt`/`.doc`/`.xls`/`.odp`)
+  are converted to PDF with `soffice --headless` on first use and cached.
+  Served at `GET /v1/assets/:id/preview`. If `soffice` is not installed the
+  endpoint answers `404` and the UI falls back to download, so the feature is
+  safe to enable on hosts without LibreOffice. Install LibreOffice to activate:
+  `FILEHUB` simply shells out to the `soffice` binary on `PATH`.

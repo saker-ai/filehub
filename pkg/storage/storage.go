@@ -643,6 +643,12 @@ func ThumbnailKey(assetID string, w, h int, format string) string {
 	return fmt.Sprintf("_thumbs/%s/%dx%d.%s", assetID, w, h, strings.TrimPrefix(format, "."))
 }
 
+// PreviewKey identifies a cached rendered preview (currently a PDF converted
+// from office documents via LibreOffice).
+func PreviewKey(assetID string) string {
+	return fmt.Sprintf("_previews/%s/preview.pdf", assetID)
+}
+
 func ChunkKey(uploadID string, partNum int) string {
 	return fmt.Sprintf("_chunks/%s/part-%d", uploadID, partNum)
 }

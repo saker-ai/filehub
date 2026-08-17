@@ -1131,6 +1131,25 @@ func TestWorkspaceLogsDoNotLeakSecrets(t *testing.T) {
 	}
 }
 
+// --- Asset preview (server-rendered office → PDF) ------------------------------------
+
+func TestPreviewNonOfficeReturns404(t *testing.T) {
+	ts := newWorkspaceServer(t)
+	assetID := ts.uploadAsset(t, "note.txt", []byte("plain text, not previewable"))
+	rec := ts.do(t, http.MethodGet, "/v1/assets/"+assetID+"/preview", nil, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("preview of non-office asset status=%d want 404 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPreviewMissingAssetReturns404(t *testing.T) {
+	ts := newWorkspaceServer(t)
+	rec := ts.do(t, http.MethodGet, "/v1/assets/asset-does-not-exist/preview", nil, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("preview of missing asset status=%d want 404", rec.Code)
+	}
+}
+
 // --- Regression guard: unconfigured deployments ----------------------------------------
 
 func TestWorkspacesDisabledLeavesLegacyBehavior(t *testing.T) {

@@ -35,6 +35,13 @@ export function assetContentURL(assetID: string, opts: { download?: boolean } = 
   return fileHubURL(`${ASSETS_PATH}/${encodeURIComponent(assetID)}/content${query ? `?${query}` : ''}`)
 }
 
+// assetPreviewURL returns the server-rendered preview (currently a PDF
+// converted from office documents). It 404s when preview is unavailable, so
+// callers can fall back to download.
+export function assetPreviewURL(assetID: string): string {
+  return fileHubURL(`${ASSETS_PATH}/${encodeURIComponent(assetID)}/preview`)
+}
+
 export function assetThumbnailURL(assetID: string, opts: { width?: number; height?: number; format?: string } = {}): string {
   const search = new URLSearchParams()
   if (opts.width) search.set('width', String(opts.width))

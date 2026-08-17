@@ -62,3 +62,29 @@ func TestPipelineEnqueueClaimsAssetOnce(t *testing.T) {
 		t.Fatalf("processing runs = %d, want 1", got)
 	}
 }
+
+func TestOfficePreviewSupported(t *testing.T) {
+	cases := []struct {
+		filename    string
+		contentType string
+		want        bool
+	}{
+		{"slides.pptx", "application/zip", true},
+		{"slides.ppt", "application/vnd.ms-powerpoint", true},
+		{"legacy.doc", "application/zip", true},
+		{"legacy.xls", "application/zip", true},
+		{"deck.odp", "application/zip", true},
+		{"report.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", true},
+		{"document.docx", "application/zip", false}, // rendered client-side
+		{"sheet.xlsx", "application/zip", false},    // rendered client-side
+		{"notes.txt", "text/plain", false},
+		{"image.png", "image/png", false},
+		{"", "application/msword", true}, // content-type fallback
+	}
+	for _, tc := range cases {
+		asset := &store.Asset{Filename: tc.filename, ContentType: tc.contentType}
+		if got := officePreviewSupported(asset); got != tc.want {
+			t.Errorf("officePreviewSupported(%q, %q) = %v, want %v", tc.filename, tc.contentType, got, tc.want)
+		}
+	}
+}
