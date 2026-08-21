@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -89,10 +90,25 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 		staticFS := http.FS(staticSub)
 		r.StaticFS("/static", staticFS)
 		serveAsset := func(c *gin.Context) {
-			c.FileFromFS("assets/"+c.Param("file"), staticFS)
+			id := c.Param("file")
+			// Saker's HTTPStore downloads assets via GET /assets/{id} (binary).
+			// When the segment is an asset/file id, serve the asset body;
+			// otherwise fall through to the web static asset (e.g. index.js).
+			if strings.HasPrefix(id, "file-") || strings.HasPrefix(id, "asset-") {
+				if a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id); err == nil && a != nil {
+					h.streamAsset(c, a)
+					return
+				}
+			}
+			c.FileFromFS("assets/"+id, staticFS)
 		}
 		r.GET("/assets/:file", serveAsset)
 		r.HEAD("/assets/:file", serveAsset)
+		// Saker's HTTPStore uploads via POST/PUT /assets when its configured
+		// BaseURL has no /v1 prefix; mirror the v1 createAsset handler so
+		// uploads land in filehub instead of the web static NoRoute (HTML).
+		r.POST("/assets", h.createAsset)
+		r.PUT("/assets", h.createAsset)
 		serveIndex := func(c *gin.Context) {
 			data, err := fs.ReadFile(staticSub, "index.html")
 			if err != nil {
@@ -412,7 +428,7 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile, ex
 		return
 	}
 	purpose := c.PostForm("purpose")
-	if purpose == "" && externalAPI {
+	if purpose == "" {
 		purpose = "general"
 	}
 	if !validPurposes[purpose] {
@@ -770,8 +786,14 @@ func (h handler) assetWorkspaceReferenced(c *gin.Context, assetID string) bool {
 }
 
 func (h handler) getContent(c *gin.Context) {
-	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), c.Param("id"))
+	id := c.Param("id")
+	a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			slog.WarnContext(c.Request.Context(), "filehub content not found",
+				"component", "filehub", "op", "get_content",
+				"asset_id", id, "tenant_id", Tenant(c), "not_found", true)
+		}
 		writeErr(c, err)
 		return
 	}
