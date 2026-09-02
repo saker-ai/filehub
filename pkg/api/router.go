@@ -754,18 +754,20 @@ func (h handler) delete(c *gin.Context, file bool) {
 		writeError(c, http.StatusConflict, "asset_referenced", "asset is referenced by a workspace revision and cannot be deleted")
 		return
 	}
-	_ = h.deps.Storage.Delete(c.Request.Context(), a.StorageKey)
-	_ = h.deps.Storage.DeleteRecursive(c.Request.Context(), "_thumbs/"+a.ID+"/")
+	blobErr := errors.Join(
+		h.deps.Storage.Delete(c.Request.Context(), a.StorageKey),
+		h.deps.Storage.DeleteRecursive(c.Request.Context(), "_thumbs/"+a.ID+"/"),
+	)
 	if err := h.deps.Assets.Delete(c.Request.Context(), Tenant(c), a.ID); err != nil {
 		writeErr(c, err)
 		return
 	}
 	h.invalidateStats(Tenant(c))
 	if file {
-		c.JSON(http.StatusOK, gin.H{"id": a.ID, "object": "file", "deleted": true})
+		c.JSON(http.StatusOK, gin.H{"id": a.ID, "object": "file", "deleted": true, "blob_deleted": blobErr == nil})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"id": a.ID, "object": "asset", "deleted": true})
+	c.JSON(http.StatusOK, gin.H{"id": a.ID, "object": "asset", "deleted": true, "blob_deleted": blobErr == nil})
 }
 
 // assetWorkspaceReferenced reports whether any workspace revision references
@@ -1402,12 +1404,16 @@ func (h handler) bulkDelete(c *gin.Context) {
 			continue
 		}
 		a, err := h.deps.Assets.Get(c.Request.Context(), Tenant(c), id)
+		blobDeleted := false
 		if err == nil {
-			_ = h.deps.Storage.Delete(c.Request.Context(), a.StorageKey)
-			_ = h.deps.Storage.DeleteRecursive(c.Request.Context(), "_thumbs/"+a.ID+"/")
+			blobErr := errors.Join(
+				h.deps.Storage.Delete(c.Request.Context(), a.StorageKey),
+				h.deps.Storage.DeleteRecursive(c.Request.Context(), "_thumbs/"+a.ID+"/"),
+			)
+			blobDeleted = blobErr == nil
 			err = h.deps.Assets.Delete(c.Request.Context(), Tenant(c), id)
 		}
-		results = append(results, gin.H{"id": id, "deleted": err == nil, "error": errorString(err)})
+		results = append(results, gin.H{"id": id, "deleted": err == nil, "blob_deleted": blobDeleted, "error": errorString(err)})
 	}
 	h.invalidateStats(Tenant(c))
 	c.JSON(http.StatusOK, gin.H{"object": "bulk_delete", "data": results})
