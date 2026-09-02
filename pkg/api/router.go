@@ -1227,7 +1227,10 @@ func (h handler) presign(c *gin.Context) {
 		ExpiresIn      string `json:"expires_in"`
 		ExpiresInCamel string `json:"expiresIn"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(c, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
 	ttl := h.deps.Config.PresignTTL
 	expiresIn := req.ExpiresIn
 	if expiresIn == "" {
@@ -1239,7 +1242,7 @@ func (h handler) presign(c *gin.Context) {
 		}
 	}
 	url, expires := h.signedAssetURL(c, a, ttl)
-	c.JSON(http.StatusOK, gin.H{"url": url, "expires_at": expires.Unix(), "expiresAt": expires.Unix()})
+	c.JSON(http.StatusOK, gin.H{"url": url, "expires_at": expires.Unix()})
 }
 
 func (h handler) externalAssetResponse(c *gin.Context, a *store.Asset) gin.H {
@@ -1307,13 +1310,7 @@ func (h handler) signedDownload(c *gin.Context) {
 	}
 	id := c.Param("id")
 	tenantID := strings.TrimSpace(c.Query("tenant_id"))
-	if tenantID == "" {
-		tenantID = "default"
-		if !h.deps.Storage.Verify(id, expires, c.Query("sig")) {
-			writeError(c, http.StatusUnauthorized, "invalid_signature", "signed URL expired or invalid")
-			return
-		}
-	} else if !h.deps.Storage.VerifyTenant(tenantID, id, expires, c.Query("sig")) {
+	if !h.deps.Storage.VerifyTenant(tenantID, id, expires, c.Query("sig")) {
 		writeError(c, http.StatusUnauthorized, "invalid_signature", "signed URL expired or invalid")
 		return
 	}
@@ -1724,10 +1721,6 @@ func (h handler) putPart(c *gin.Context) {
 		}()
 		etag, bytesWritten, err := h.deps.Storage.UploadPart(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID, partNum, tmp)
 		if err != nil {
-			if errors.Is(err, errPayloadTooLarge) {
-				writeError(c, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large")
-				return
-			}
 			writeErr(c, err)
 			return
 		}

@@ -271,12 +271,6 @@ func (s *Store) LocalPresignURL(tenantID, assetID string, expires time.Time) str
 	return u
 }
 
-func (s *Store) Sign(assetID string, expiresUnix int64) string {
-	mac := hmac.New(sha256.New, []byte(s.presignSecret))
-	_, _ = fmt.Fprintf(mac, "%s|%d", assetID, expiresUnix)
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
 func (s *Store) SignTenant(tenantID, assetID string, expiresUnix int64) string {
 	if tenantID == "" {
 		tenantID = "default"
@@ -284,18 +278,6 @@ func (s *Store) SignTenant(tenantID, assetID string, expiresUnix int64) string {
 	mac := hmac.New(sha256.New, []byte(s.presignSecret))
 	_, _ = fmt.Fprintf(mac, "%s|%s|%d", tenantID, assetID, expiresUnix)
 	return hex.EncodeToString(mac.Sum(nil))
-}
-
-func (s *Store) Verify(assetID string, expiresUnix int64, sig string) bool {
-	want, err := hex.DecodeString(s.Sign(assetID, expiresUnix))
-	if err != nil {
-		return false
-	}
-	got, err := hex.DecodeString(sig)
-	if err != nil {
-		return false
-	}
-	return hmac.Equal(got, want)
 }
 
 func (s *Store) VerifyTenant(tenantID, assetID string, expiresUnix int64, sig string) bool {
