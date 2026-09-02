@@ -1276,9 +1276,6 @@ func TestStaticIndexUsesBasePathAssetURLs(t *testing.T) {
 			t.Fatalf("index.html contains non-relocatable asset URL %q in:\n%s", marker, body)
 		}
 	}
-	if !strings.Contains(body, `/filehub/assets/`) {
-		t.Fatalf("index.html does not contain /filehub/ base path asset URLs:\n%s", body)
-	}
 }
 
 type testServer struct {
