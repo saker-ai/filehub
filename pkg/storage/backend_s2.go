@@ -52,6 +52,9 @@ func (b *s2Backend) PutBytes(ctx context.Context, key string, data []byte) error
 func (b *s2Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	obj, err := b.store.Get(ctx, b.objectKey(key))
 	if err != nil {
+		if errors.Is(err, s2.ErrNotExist) {
+			return nil, fmt.Errorf("get object: %w", ErrObjectNotFound)
+		}
 		return nil, fmt.Errorf("get object: %w", err)
 	}
 	rc, err := obj.Open()

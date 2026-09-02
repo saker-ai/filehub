@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -36,7 +35,7 @@ func TestPromoteMovesObjectAndIsIdempotent(t *testing.T) {
 	if readErr != nil || closeErr != nil || string(data) != "payload" {
 		t.Fatalf("promoted object data=%q readErr=%v closeErr=%v", data, readErr, closeErr)
 	}
-	if _, err := store.Get(t.Context(), "_uploads/upl-1/file.txt"); err == nil || !errors.Is(err, os.ErrNotExist) && !strings.Contains(err.Error(), "not exist") {
+	if _, err := store.Get(t.Context(), "_uploads/upl-1/file.txt"); err == nil || !errors.Is(err, ErrObjectNotFound) {
 		t.Fatalf("staged object lookup error = %v, want not found", err)
 	}
 }

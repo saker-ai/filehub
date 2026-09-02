@@ -1990,7 +1990,7 @@ func (h handler) directCompletionObject(ctx context.Context, sess *store.UploadS
 		return sess.StorageKey, info, err
 	}
 	info, err := h.deps.Storage.HeadObject(ctx, finalKey)
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
+	if err == nil || !errors.Is(err, blob.ErrObjectNotFound) {
 		return finalKey, info, err
 	}
 	info, sourceErr := h.deps.Storage.HeadObject(ctx, sess.StorageKey)
@@ -2025,11 +2025,11 @@ func (h handler) completeDirectMultipart(c *gin.Context, sess *store.UploadSessi
 		nativeParts = append(nativeParts, blob.MultipartPart{PartNum: p.Part, ETag: etag})
 	}
 	objectKey, info, headErr := h.directCompletionObject(c.Request.Context(), sess)
-	if headErr != nil && !errors.Is(headErr, os.ErrNotExist) {
+	if headErr != nil && !errors.Is(headErr, blob.ErrObjectNotFound) {
 		writeErr(c, headErr)
 		return
 	}
-	if errors.Is(headErr, os.ErrNotExist) {
+	if errors.Is(headErr, blob.ErrObjectNotFound) {
 		if err := h.deps.Storage.CompleteMultipartUpload(c.Request.Context(), sess.StorageKey, sess.ProviderUploadID, nativeParts); err != nil {
 			writeErr(c, err)
 			return

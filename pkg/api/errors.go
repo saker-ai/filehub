@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	blob "github.com/saker-ai/filehub/pkg/storage"
 	"github.com/saker-ai/filehub/pkg/store"
 )
 
@@ -41,6 +42,8 @@ func writeDuplicateError(c *gin.Context, assetID string) {
 
 func writeErr(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, blob.ErrObjectNotFound):
+		writeError(c, http.StatusNotFound, "object_not_found", "object not found")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	case errors.Is(err, store.ErrConflict):

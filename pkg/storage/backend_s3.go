@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -75,6 +74,9 @@ func (b *s3Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) 
 		Key:    aws.String(b.objectKey(key)),
 	})
 	if err != nil {
+		if isS3NotFound(err) {
+			return nil, fmt.Errorf("get object: %w", ErrObjectNotFound)
+		}
 		return nil, fmt.Errorf("get object: %w", err)
 	}
 	return out.Body, nil
@@ -158,7 +160,7 @@ func (b *s3Backend) HeadObject(ctx context.Context, key string) (*ObjectInfo, er
 	})
 	if err != nil {
 		if isS3NotFound(err) {
-			return nil, fmt.Errorf("head object: %w", os.ErrNotExist)
+			return nil, fmt.Errorf("head object: %w", ErrObjectNotFound)
 		}
 		return nil, fmt.Errorf("head object: %w", err)
 	}
@@ -193,7 +195,7 @@ func (b *s3Backend) Promote(ctx context.Context, sourceKey, targetKey string) er
 		if targetExists {
 			return nil
 		}
-		return fmt.Errorf("promote object source: %w", os.ErrNotExist)
+		return fmt.Errorf("promote object source: %w", ErrObjectNotFound)
 	}
 	copySource := url.PathEscape(path.Join(b.bucket, b.objectKey(sourceKey)))
 	if _, err := b.client.CopyObject(ctx, &s3.CopyObjectInput{

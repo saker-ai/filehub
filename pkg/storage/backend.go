@@ -42,6 +42,10 @@ type MultipartBackend interface {
 // operation (e.g. multipart/presign on osfs/memfs).
 var ErrNotSupported = errors.New("operation not supported by storage backend")
 
+// ErrObjectNotFound is returned when a blob object does not exist. HTTP layer
+// maps it to 404 (distinct from backend failure → 500).
+var ErrObjectNotFound = errors.New("object not found")
+
 // MultipartPart is one part of a completed multipart upload.
 type MultipartPart struct {
 	PartNum int

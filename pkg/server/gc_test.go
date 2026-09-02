@@ -6,13 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/saker-ai/filehub/pkg/config"
+	blob "github.com/saker-ai/filehub/pkg/storage"
 	"github.com/saker-ai/filehub/pkg/store"
 )
 
@@ -50,7 +50,7 @@ func TestCollectExpiredDeletesDirectUploadObject(t *testing.T) {
 		_ = rc.Close()
 		t.Fatal("orphan object still exists")
 	}
-	if !errors.Is(err, os.ErrNotExist) && !strings.Contains(err.Error(), "not exist") {
+	if !errors.Is(err, blob.ErrObjectNotFound) {
 		t.Fatalf("Get deleted object: %v", err)
 	}
 	if _, err := srv.db.GetSession(ctx, "default", session.ID); !errors.Is(err, store.ErrNotFound) {
