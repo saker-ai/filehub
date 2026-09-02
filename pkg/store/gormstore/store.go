@@ -862,6 +862,9 @@ func (s *Store) CreateSession(ctx context.Context, sess *store.UploadSession) er
 	if sess.CreatedAt.IsZero() {
 		sess.CreatedAt = time.Now().UTC()
 	}
+	if !sess.ExpiresAt.IsZero() {
+		sess.ExpiresAt = sess.ExpiresAt.UTC()
+	}
 	if sess.ChunkSize <= 0 {
 		sess.ChunkSize = 10 * 1024 * 1024
 	}
