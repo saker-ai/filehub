@@ -2257,7 +2257,7 @@ func assetResponse(a *store.Asset, file bool) gin.H {
 	out := gin.H{
 		"id": a.ID, "object": obj, "bytes": a.Bytes, "created_at": a.CreatedAt.Unix(), "filename": a.Filename,
 		"purpose": a.Purpose, "status": a.Status,
-		"assetId": a.ID, "file_id": a.ID, "content_type": a.ContentType, "mime_type": a.ContentType,
+		"content_type": a.ContentType,
 	}
 	if !file {
 		tags := make([]string, 0, len(a.Tags))
