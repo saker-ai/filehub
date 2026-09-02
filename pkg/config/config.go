@@ -45,6 +45,7 @@ type Config struct {
 	WebEnabled            bool               `json:"web_enabled" yaml:"web_enabled"`
 	WebHubNotify          WebHubNotifyConfig `json:"webhub_notify" yaml:"webhub_notify"`
 	Workspaces            WorkspacesConfig   `json:"workspaces" yaml:"workspaces"`
+	AllowInsecureDefaults bool               `json:"allow_insecure_defaults,omitempty" yaml:"allow_insecure_defaults,omitempty"`
 }
 
 // WorkspacesConfig controls the Workspace Sync feature (doc §8, §13).
@@ -124,7 +125,7 @@ func Defaults() Config {
 		Storage:               StorageConfig{Backend: BackendOSFS, DataDir: ".synapse/stack/filehub-data"},
 		APIKeys:               nil,
 		InternalAuth:          InternalAuthConfig{Issuer: "synapse", Audience: "filehub", TTL: 5 * time.Minute},
-		PresignSecret:         "filehub-presign-secret",
+		PresignSecret:         "",
 		PresignTTL:            7 * 24 * time.Hour,
 		MaxUploadBytes:        512 * 1024 * 1024,
 		MaxConcurrentUploads:  10,
@@ -133,12 +134,13 @@ func Defaults() Config {
 		ExternalFetchMaxSize:  1024 * 1024 * 1024,
 		ProcessingConcurrency: 8,
 		GCInterval:            time.Hour,
-		CORSOrigins:           []string{"*"},
+		CORSOrigins:           nil,
 		RatePerSec:            100,
 		RateBurst:             200,
 		MetricsEnabled:        true,
 		MetricsPath:           "/metrics",
 		WebEnabled:            true,
+		AllowInsecureDefaults: true,
 	}
 }
 
@@ -168,9 +170,6 @@ func (c *Config) withDefaults() {
 	if c.InternalAuth.TTL <= 0 {
 		c.InternalAuth.TTL = def.InternalAuth.TTL
 	}
-	if c.PresignSecret == "" {
-		c.PresignSecret = def.PresignSecret
-	}
 	if c.PresignTTL <= 0 {
 		c.PresignTTL = def.PresignTTL
 	}
@@ -194,9 +193,6 @@ func (c *Config) withDefaults() {
 	}
 	if c.GCInterval <= 0 {
 		c.GCInterval = def.GCInterval
-	}
-	if len(c.CORSOrigins) == 0 {
-		c.CORSOrigins = def.CORSOrigins
 	}
 	if c.RatePerSec <= 0 {
 		c.RatePerSec = def.RatePerSec
@@ -223,6 +219,14 @@ func (c Config) Validate() error {
 	}
 	if c.APIKeyAuthEnabled && len(c.APIKeys) == 0 {
 		return fmt.Errorf("api_keys is required when api_key_auth_enabled=true")
+	}
+	if !c.AllowInsecureDefaults {
+		if c.PresignSecret == "" || c.PresignSecret == "filehub-presign-secret" {
+			return fmt.Errorf("presign_secret must be set to a non-default value (or set allow_insecure_defaults=true for dev)")
+		}
+		if len(c.CORSOrigins) == 1 && c.CORSOrigins[0] == "*" {
+			return fmt.Errorf("cors_origins must not be '*' in production (or set allow_insecure_defaults=true for dev)")
+		}
 	}
 	return nil
 }
