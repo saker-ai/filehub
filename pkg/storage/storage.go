@@ -262,13 +262,20 @@ func (s *Store) AbortMultipartUpload(ctx context.Context, key, uploadID string) 
 // on Store; backends are not concerned with this).
 
 func (s *Store) LocalPresignURL(tenantID, assetID string, expires time.Time) string {
+	return s.LocalPresignURLAt(s.baseURL, tenantID, assetID, expires)
+}
+
+// LocalPresignURLAt builds a tenant-bound, expiring /v1/dl signed-download
+// URL using the given baseURL instead of the Store's configured base. It lets
+// embedders (e.g. Saker's in-process fileHubAssetStore) reuse the exact URL
+// shape rather than reconstructing it by hand.
+func (s *Store) LocalPresignURLAt(baseURL, tenantID, assetID string, expires time.Time) string {
 	expiresUnix := expires.Unix()
 	if tenantID == "" {
 		tenantID = "default"
 	}
 	sig := s.SignTenant(tenantID, assetID, expiresUnix)
-	u := fmt.Sprintf("%s/v1/dl/%s?tenant_id=%s&expires=%d&sig=%s", strings.TrimRight(s.baseURL, "/"), url.PathEscape(assetID), url.QueryEscape(tenantID), expiresUnix, sig)
-	return u
+	return fmt.Sprintf("%s/v1/dl/%s?tenant_id=%s&expires=%d&sig=%s", strings.TrimRight(baseURL, "/"), url.PathEscape(assetID), url.QueryEscape(tenantID), expiresUnix, sig)
 }
 
 func (s *Store) SignTenant(tenantID, assetID string, expiresUnix int64) string {
