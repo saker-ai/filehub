@@ -510,7 +510,7 @@ func (h handler) createMultipart(c *gin.Context, idPrefix string, openAIFile, ex
 		writeErr(c, err)
 		return
 	}
-	if _, err := h.deps.Storage.Put(c.Request.Context(), storageKey, tmp); err != nil {
+	if _, err := h.deps.Storage.Put(c.Request.Context(), storageKey, contentType, tmp); err != nil {
 		writeErr(c, err)
 		return
 	}
@@ -661,7 +661,7 @@ func (h handler) completeExternalFetch(ctx context.Context, asset *store.Asset, 
 			releaseQuota()
 		}
 	}()
-	if _, err := h.deps.Storage.Put(ctx, asset.StorageKey, bytes.NewReader(data)); err != nil {
+	if _, err := h.deps.Storage.Put(ctx, asset.StorageKey, contentType, bytes.NewReader(data)); err != nil {
 		return err
 	}
 	h.deps.Metrics.AddUploadBytes(int64(len(data)))
@@ -1747,7 +1747,8 @@ func (h handler) putPart(c *gin.Context) {
 	}
 	defer releaseQuota()
 	etag := sha256Hex(data)
-	if _, err := h.deps.Storage.Put(c.Request.Context(), blob.ChunkKey(sess.ID, partNum), bytes.NewReader(data)); err != nil {
+	// Staged parts carry the session's media type so a promoted part keeps it.
+	if _, err := h.deps.Storage.Put(c.Request.Context(), blob.ChunkKey(sess.ID, partNum), sess.ContentType, bytes.NewReader(data)); err != nil {
 		writeErr(c, err)
 		return
 	}
@@ -1944,7 +1945,7 @@ func (h handler) completeUpload(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	if _, err := h.deps.Storage.Put(c.Request.Context(), key, tmp); err != nil {
+	if _, err := h.deps.Storage.Put(c.Request.Context(), key, sess.ContentType, tmp); err != nil {
 		writeErr(c, err)
 		return
 	}

@@ -10,9 +10,14 @@ import (
 // Backend abstracts blob object storage operations across local (osfs/memfs)
 // and native object stores (S3/OSS). Implementations handle key prefixing
 // internally so callers pass logical keys.
+//
+// Put and PutBytes take the object's media type. Object stores record it, and
+// it is what a browser or an external consumer sees when reading the object
+// directly — through a presigned URL, for instance, which does not go through
+// this service and so cannot fall back to the asset row's content type.
 type Backend interface {
-	Put(ctx context.Context, key string, r io.Reader) (int64, error)
-	PutBytes(ctx context.Context, key string, data []byte) error
+	Put(ctx context.Context, key, contentType string, r io.Reader) (int64, error)
+	PutBytes(ctx context.Context, key, contentType string, data []byte) error
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	ReadAll(ctx context.Context, key string) ([]byte, error)
 	Delete(ctx context.Context, key string) error

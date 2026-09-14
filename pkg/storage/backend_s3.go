@@ -41,28 +41,36 @@ func (b *s3Backend) objectKey(key string) string {
 	return path.Join(b.prefix, key)
 }
 
-func (b *s3Backend) Put(ctx context.Context, key string, r io.Reader) (int64, error) {
+func (b *s3Backend) Put(ctx context.Context, key, contentType string, r io.Reader) (int64, error) {
 	body, bytesWritten, cleanup, err := seekableBody(r)
 	if err != nil {
 		return 0, fmt.Errorf("prepare object body: %w", err)
 	}
 	defer cleanup()
-	if _, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(b.objectKey(key)),
 		Body:   body,
-	}); err != nil {
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	if _, err := b.client.PutObject(ctx, input); err != nil {
 		return 0, fmt.Errorf("put object: %w", err)
 	}
 	return bytesWritten, nil
 }
 
-func (b *s3Backend) PutBytes(ctx context.Context, key string, data []byte) error {
-	if _, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+func (b *s3Backend) PutBytes(ctx context.Context, key, contentType string, data []byte) error {
+	input := &s3.PutObjectInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(b.objectKey(key)),
 		Body:   bytes.NewReader(data),
-	}); err != nil {
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	if _, err := b.client.PutObject(ctx, input); err != nil {
 		return fmt.Errorf("put object: %w", err)
 	}
 	return nil

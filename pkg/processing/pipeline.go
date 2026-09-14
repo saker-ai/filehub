@@ -228,7 +228,7 @@ func (p *Pipeline) GeneratePreviewPDF(ctx context.Context, asset *store.Asset) (
 	if err != nil {
 		return nil, err
 	}
-	if err := p.storage.PutBytes(ctx, key, pdf); err != nil {
+	if err := p.storage.PutBytes(ctx, key, "application/pdf", pdf); err != nil {
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(pdf)), nil

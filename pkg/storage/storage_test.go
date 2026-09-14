@@ -18,7 +18,7 @@ func TestPromoteMovesObjectAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Put(t.Context(), "_uploads/upl-1/file.txt", bytes.NewBufferString("payload")); err != nil {
+	if _, err := store.Put(t.Context(), "_uploads/upl-1/file.txt", "text/plain", bytes.NewBufferString("payload")); err != nil {
 		t.Fatal(err)
 	}
 	for attempt := 0; attempt < 2; attempt++ {

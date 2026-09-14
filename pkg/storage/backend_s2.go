@@ -31,7 +31,10 @@ func (b *s2Backend) objectKey(key string) string {
 	return path.Join(b.prefix, key)
 }
 
-func (b *s2Backend) Put(ctx context.Context, key string, r io.Reader) (int64, error) {
+// Put stores an object. contentType is accepted for backend parity but not
+// persisted: the s2 store keeps no object metadata, and local reads are served
+// with the content type recorded in the asset row.
+func (b *s2Backend) Put(ctx context.Context, key, _ string, r io.Reader) (int64, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return 0, fmt.Errorf("read object: %w", err)
@@ -42,7 +45,7 @@ func (b *s2Backend) Put(ctx context.Context, key string, r io.Reader) (int64, er
 	return int64(len(data)), nil
 }
 
-func (b *s2Backend) PutBytes(ctx context.Context, key string, data []byte) error {
+func (b *s2Backend) PutBytes(ctx context.Context, key, _ string, data []byte) error {
 	if err := b.store.Put(ctx, s2.NewObjectBytes(b.objectKey(key), data)); err != nil {
 		return fmt.Errorf("put object: %w", err)
 	}
@@ -125,7 +128,9 @@ func (b *s2Backend) Promote(ctx context.Context, sourceKey, targetKey string) er
 		}
 		return fmt.Errorf("promote object source: %w", errors.Join(err, targetErr))
 	}
-	_, putErr := b.Put(ctx, targetKey, rc)
+	// The s2 store cannot report the source's media type, and does not persist
+	// one either, so the copy carries none.
+	_, putErr := b.Put(ctx, targetKey, "", rc)
 	closeErr := rc.Close()
 	if putErr != nil || closeErr != nil {
 		return fmt.Errorf("promote object copy: %w", errors.Join(putErr, closeErr))

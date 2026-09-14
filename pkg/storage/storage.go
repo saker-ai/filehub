@@ -160,12 +160,12 @@ func listenBaseURL(addr string) string {
 
 // Data-plane delegates.
 
-func (s *Store) Put(ctx context.Context, key string, r io.Reader) (int64, error) {
-	return s.backend.Put(ctx, key, r)
+func (s *Store) Put(ctx context.Context, key, contentType string, r io.Reader) (int64, error) {
+	return s.backend.Put(ctx, key, contentType, r)
 }
 
-func (s *Store) PutBytes(ctx context.Context, key string, data []byte) error {
-	return s.backend.PutBytes(ctx, key, data)
+func (s *Store) PutBytes(ctx context.Context, key, contentType string, data []byte) error {
+	return s.backend.PutBytes(ctx, key, contentType, data)
 }
 
 func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
@@ -197,7 +197,20 @@ func (s *Store) HeadObject(ctx context.Context, key string) (*ObjectInfo, error)
 }
 
 func (s *Store) PutThumbnail(ctx context.Context, assetID string, w, h int, format string, data []byte) error {
-	return s.backend.PutBytes(ctx, ThumbnailKey(assetID, w, h, format), data)
+	return s.backend.PutBytes(ctx, ThumbnailKey(assetID, w, h, format), thumbnailContentType(format), data)
+}
+
+// thumbnailContentType maps a thumbnail encoding to the media type stored
+// alongside it, matching ThumbnailKey's default of jpg.
+func thumbnailContentType(format string) string {
+	switch strings.ToLower(strings.TrimPrefix(format, ".")) {
+	case "png":
+		return "image/png"
+	case "webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }
 
 func (s *Store) GetThumbnail(ctx context.Context, assetID string, w, h int, format string) (io.ReadCloser, error) {

@@ -32,7 +32,7 @@ func TestCollectExpiredDeletesDirectUploadObject(t *testing.T) {
 	t.Cleanup(func() { _ = srv.db.Close() })
 
 	const key = "tenant/general/asset-orphan/orphan.txt"
-	if _, err := srv.blobs.Put(ctx, key, bytes.NewBufferString("orphan")); err != nil {
+	if _, err := srv.blobs.Put(ctx, key, "text/plain", bytes.NewBufferString("orphan")); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	session := &store.UploadSession{

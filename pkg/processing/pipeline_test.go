@@ -31,7 +31,7 @@ func TestPipelineEnqueueClaimsAssetOnce(t *testing.T) {
 		ID: "asset-once", TenantID: "default", Purpose: "general", Filename: "once.txt",
 		ContentType: "text/plain", StorageKey: "default/general/asset-once/once.txt", Status: "uploaded",
 	}
-	if _, err := blobs.Put(t.Context(), asset.StorageKey, bytes.NewBufferString("payload")); err != nil {
+	if _, err := blobs.Put(t.Context(), asset.StorageKey, "text/plain", bytes.NewBufferString("payload")); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Create(t.Context(), asset); err != nil {

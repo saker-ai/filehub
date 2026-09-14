@@ -37,7 +37,7 @@ func TestCollectExpiredSkipsWorkspaceReferencedAsset(t *testing.T) {
 
 	// Create an asset directly in the store and blob storage.
 	storageKey := "default/general/asset-wsref/file.txt"
-	if _, err := srv.blobs.Put(ctx, storageKey, bytes.NewBufferString("workspace referenced")); err != nil {
+	if _, err := srv.blobs.Put(ctx, storageKey, "text/plain", bytes.NewBufferString("workspace referenced")); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	// Create an asset with a future expiry; the commit references it and
