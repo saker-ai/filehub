@@ -91,7 +91,7 @@ type Asset struct {
 	Status      string
 	Source      string
 	Metadata    JSONMap
-	Tags        []Tag
+	Tags        []Tag `gorm:"-"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	ExpiresAt   *time.Time
@@ -182,7 +182,7 @@ type AssetReview struct {
 	Source          string
 	TraceID         string
 	Metadata        JSONMap
-	Items           []AssetReviewItem
+	Items           []AssetReviewItem `gorm:"-"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	CompletedAt     *time.Time

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/saker-ai/filehub/pkg/store"
+	"gorm.io/gorm/logger"
 )
 
 func TestStoreCreateDedupeKeyUniqueOnlyWhenSet(t *testing.T) {
@@ -376,5 +378,71 @@ func TestStoreClaimSessionCompletionIsAtomicAndExtendsLease(t *testing.T) {
 	}
 	if loaded.Status != "completing" || loaded.ExpiresAt.Before(leaseUntil.Add(-time.Second)) {
 		t.Fatalf("claimed session status=%q expires=%s, want completing through %s", loaded.Status, loaded.ExpiresAt, leaseUntil)
+	}
+}
+
+// recordingLogger captures error lines emitted through GORM's package-global
+// logger while delegating everything else to the discarded logger.
+type recordingLogger struct {
+	logger.Interface
+	mu     sync.Mutex
+	errors []string
+}
+
+func (l *recordingLogger) Error(_ context.Context, msg string, _ ...interface{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.errors = append(l.errors, msg)
+}
+
+func (l *recordingLogger) loggedErrors() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.errors...)
+}
+
+// TestScanIntoDomainAssetParsesSchema guards the keyset scan pattern used by
+// callers that select a subset of columns into the domain asset
+// (Model(&AssetModel{}).Select(...).Find(&[]store.Asset)).
+//
+// GORM re-parses the destination type as a schema whenever it differs from the
+// query model. store.Asset is a domain type that is never migrated, so its
+// aggregate fields must stay invisible to GORM's schema parser: otherwise the
+// parse fails with "define a valid foreign key for relations ...". The failure
+// is discarded and the query still returns rows, but GORM logs it through
+// logger.Default at error level, which spams embedders' stderr.
+func TestScanIntoDomainAssetParsesSchema(t *testing.T) {
+	original := logger.Default
+	rec := &recordingLogger{Interface: logger.Discard}
+	logger.Default = rec
+	t.Cleanup(func() { logger.Default = original })
+
+	ctx := t.Context()
+	db, err := Open(ctx, "sqlite://"+filepath.Join(t.TempDir(), "filehub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	asset := testAsset("asset-scan", "scan.txt", "sha256:scan")
+	expires := time.Now().UTC().Add(-time.Hour)
+	asset.ExpiresAt = &expires
+	if err := db.Create(ctx, asset); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	var assets []*store.Asset
+	err = db.DB().WithContext(ctx).Model(&AssetModel{}).
+		Select("id", "tenant_id", "storage_key").
+		Where("expires_at IS NOT NULL AND expires_at <= ?", time.Now().UTC()).
+		Find(&assets).Error
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(assets) != 1 || assets[0].ID != asset.ID || assets[0].StorageKey != asset.StorageKey || assets[0].TenantID != asset.TenantID {
+		t.Fatalf("scanned assets = %#v, want one row for %q", assets, asset.ID)
+	}
+	if logged := rec.loggedErrors(); len(logged) != 0 {
+		t.Fatalf("schema errors logged while scanning domain asset: %v", logged)
 	}
 }
