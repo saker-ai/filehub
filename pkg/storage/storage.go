@@ -137,6 +137,7 @@ func newS3ClientWithEndpoint(ctx context.Context, cfg config.StorageConfig, endp
 	if err != nil {
 		return nil, fmt.Errorf("load s3 config: %w", err)
 	}
+	awsCfg.Logger = awsLogger()
 	var s3Opts []func(*s3.Options)
 	if endpoint != "" {
 		s3Opts = append(s3Opts, func(o *s3.Options) {
