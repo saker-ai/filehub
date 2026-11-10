@@ -2,6 +2,21 @@
 
 FileHub is a local asset service with a Go API, embedded web UI, metadata search, signed download URLs, and local/S3/OSS storage backends.
 
+## Development entry points
+
+Use `make build` for the production frontend plus Go binary and `make test`
+for Go tests. The test target generates a minimal ignored `web/static/`
+shell; it is not a production UI build. Rebuild with `make build` before
+shipping the embedded UI. Frontend iteration uses `make dev-backend` and
+`make dev-frontend` in separate terminals.
+
+The service executable lives in [cmd/](cmd/); shared functionality is in
+[pkg/](pkg/). [web-client/](web-client/) and [web-pages/](web-pages/) expose
+the client and reusable pages separately from the [web/](web/) application.
+Local development defaults disable API-key authentication. Configure
+authentication and a non-example signing secret before exposing the service.
+
+
 ## Run
 
 Create `.env` when local overrides are needed, then run:
