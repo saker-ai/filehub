@@ -37,6 +37,15 @@ type EntryModel struct {
 // TableName fixes the table name.
 func (EntryModel) TableName() string { return "workspace_entries" }
 
+// DirectoryModel persists an explicit directory independently of file revisions.
+type DirectoryModel struct {
+	WorkspaceID string    `gorm:"type:text;primaryKey"`
+	Path        string    `gorm:"type:text;primaryKey"`
+	CreatedAt   time.Time `gorm:"not null"`
+}
+
+func (DirectoryModel) TableName() string { return "workspace_directories" }
+
 // RevisionModel persists immutable revisions. AssetID is indexed so the
 // asset deletion paths can check workspace references (FH-11, doc §8.3).
 type RevisionModel struct {

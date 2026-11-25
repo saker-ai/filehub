@@ -211,6 +211,17 @@ curl 'http://127.0.0.1:17040/v1/workspaces/<id>/history?path=docs/report.md'
 curl 'http://127.0.0.1:17040/v1/workspaces/<id>/changes?after=0'
 ```
 
+Add `include_directories=true` to the tree request to include saved folders.
+File paths also imply their parent folders. The tree uses the same path cursor
+across files and folders. A folder can be saved before it contains files, and
+deleting a folder requires it to be empty.
+
+```bash
+curl -X PUT 'http://127.0.0.1:17040/v1/workspaces/<id>/directories?path=docs/drafts'
+curl 'http://127.0.0.1:17040/v1/workspaces/<id>/tree?prefix=docs/&include_directories=true'
+curl -X DELETE 'http://127.0.0.1:17040/v1/workspaces/<id>/directories?path=docs/drafts'
+```
+
 Atomic commit applies many `put`/`delete` operations in one transaction and is
 idempotent per `Idempotency-Key`. Every operation carries the client-visible
 `base_revision_id`; a stale base redirects a `put` to a deterministic
@@ -245,7 +256,7 @@ The workspace API is documented in the OpenAPI schema at
 
 ## Web UI
 
-The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them. When Workspace Sync is enabled, a Workspaces page lists workspaces and lets you browse the tree, history, shares, and read stats.
+The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them. When Workspace Sync is enabled, the Workspaces page lets you browse folders, create and delete empty folders, and view file history, shares, and read stats.
 
 ## In-browser file previews
 

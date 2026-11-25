@@ -31,6 +31,7 @@ func New(ctx context.Context, db *gorm.DB) (*Repo, error) {
 	err := db.WithContext(ctx).AutoMigrate(
 		&WorkspaceModel{},
 		&EntryModel{},
+		&DirectoryModel{},
 		&RevisionModel{},
 		&ChangeModel{},
 		&ReceiptModel{},

@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Workspace,
   WorkspaceChange,
+  WorkspaceDirectory,
   WorkspaceEntry,
   WorkspaceRevision,
   WorkspaceShare,
   createWorkspace,
+  createWorkspaceDirectory,
   createWorkspaceShare,
   deleteWorkspace,
+  deleteWorkspaceDirectory,
   listWorkspaceChanges,
   listWorkspaceHistory,
+  listWorkspaceDirectoryTree,
   listWorkspaceShares,
-  listWorkspaceTree,
   listWorkspaces,
   readWorkspaceStats,
   restoreWorkspaceRevision,
@@ -22,6 +25,7 @@ import {
 } from '@saker/filehub-client'
 
 type Tab = 'files' | 'changes' | 'shares' | 'stats'
+type TreeNode = WorkspaceEntry | WorkspaceDirectory
 
 function formatTime(unix?: number): string {
   if (!unix) return '-'
@@ -56,10 +60,35 @@ export default function Workspaces() {
   const selected = useMemo(() => workspaces.find((item) => item.id === selectedID) || null, [selectedID, workspaces])
   const [tab, setTab] = useState<Tab>('files')
 
-  const [entries, setEntries] = useState<WorkspaceEntry[]>([])
-  const [prefix, setPrefix] = useState('')
+  const folder = searchParams.get('folder') || ''
+  const folderParts = folder ? folder.split('/') : []
+  const prefix = folder ? folder + '/' : ''
+  const [entries, setEntries] = useState<TreeNode[]>([])
   const [treeCursor, setTreeCursor] = useState('')
   const [treeHasMore, setTreeHasMore] = useState(false)
+  const [treeLoading, setTreeLoading] = useState(false)
+  const [treeVersion, setTreeVersion] = useState(0)
+  const treeRequest = useRef(0)
+  const [folderName, setFolderName] = useState('')
+  const [folderSaving, setFolderSaving] = useState(false)
+  const { directories, files } = useMemo(() => {
+    const directories = new Map<string, boolean>()
+    const files: WorkspaceEntry[] = []
+    for (const entry of entries) {
+      if (!entry.path.startsWith(prefix)) continue
+      const relativePath = entry.path.slice(prefix.length)
+      const slash = relativePath.indexOf('/')
+      if (slash >= 0) {
+        const child = relativePath.slice(0, slash)
+        if (!directories.has(child)) directories.set(child, false)
+      } else if ('revision' in entry) {
+        files.push(entry)
+      } else {
+        directories.set(relativePath, true)
+      }
+    }
+    return { directories: [...directories], files }
+  }, [entries, prefix])
 
   const [changes, setChanges] = useState<WorkspaceChange[]>([])
 
@@ -86,6 +115,33 @@ export default function Workspaces() {
     }
   }, [])
 
+  const loadTree = useCallback(async (cursor?: string) => {
+    const request = ++treeRequest.current
+    setTreeLoading(true)
+    if (!cursor) {
+      setEntries([])
+      setTreeHasMore(false)
+      setTreeCursor('')
+    }
+    try {
+      const result = await listWorkspaceDirectoryTree(selectedID, { prefix: prefix || undefined, cursor, limit: 100 })
+      if (request !== treeRequest.current) return
+      setEntries((previous) => cursor ? [...previous, ...result.data] : result.data)
+      setTreeHasMore(result.has_more)
+      setTreeCursor(result.next_cursor || '')
+    } catch (err) {
+      if (request === treeRequest.current) setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (request === treeRequest.current) setTreeLoading(false)
+    }
+  }, [selectedID, prefix])
+
+  useEffect(() => {
+    if (!selectedID || tab !== 'files') return
+    void loadTree()
+    return () => { treeRequest.current++ }
+  }, [selectedID, tab, loadTree, treeVersion])
+
   useEffect(() => {
     void refreshWorkspaces()
   }, [refreshWorkspaces])
@@ -94,15 +150,7 @@ export default function Workspaces() {
     if (!selectedID) return
     setError('')
     setNotice('')
-    if (tab === 'files') {
-      listWorkspaceTree(selectedID, { prefix: prefix || undefined, limit: 100 })
-        .then((result) => {
-          setEntries(result.data || [])
-          setTreeHasMore(Boolean(result.has_more))
-          setTreeCursor(result.next_cursor || '')
-        })
-        .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-    } else if (tab === 'changes') {
+    if (tab === 'changes') {
       listWorkspaceChanges(selectedID, { limit: 50 })
         .then((result) => setChanges(result.data || []))
         .catch((err) => setError(err instanceof Error ? err.message : String(err)))
@@ -133,8 +181,10 @@ export default function Workspaces() {
     const next = new URLSearchParams(searchParams)
     if (id) next.set('workspace', id)
     else next.delete('workspace')
+    next.delete('folder')
     setSearchParams(next, { replace: true })
     setTab('files')
+    setFolderName('')
     setHistory([])
     setHistoryPath('')
     setLastShareURL('')
@@ -169,15 +219,45 @@ export default function Workspaces() {
     }
   }
 
-  async function loadMoreTree() {
-    if (!selectedID || !treeHasMore || !treeCursor) return
+  function openFolder(path: string) {
+    const next = new URLSearchParams(searchParams)
+    if (path) next.set('folder', path)
+    else next.delete('folder')
+    setFolderName('')
+    setSearchParams(next)
+  }
+
+  async function handleCreateFolder() {
+    const name = folderName.trim()
+    if (!name || folderSaving) return
+    if (name.includes('/') || name.includes('\\') || name === '.' || name === '..') {
+      setError('Enter a single folder name.')
+      return
+    }
+    setFolderSaving(true)
+    setError('')
     try {
-      const result = await listWorkspaceTree(selectedID, { prefix: prefix || undefined, cursor: treeCursor, limit: 100 })
-      setEntries((prev) => [...prev, ...(result.data || [])])
-      setTreeHasMore(Boolean(result.has_more))
-      setTreeCursor(result.next_cursor || '')
+      await createWorkspaceDirectory(selectedID, prefix + name)
+      setFolderName('')
+      setTreeVersion((version) => version + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFolderSaving(false)
+    }
+  }
+
+  async function handleDeleteFolder(name: string) {
+    if (folderSaving) return
+    setFolderSaving(true)
+    setError('')
+    try {
+      await deleteWorkspaceDirectory(selectedID, prefix + name)
+      setTreeVersion((version) => version + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFolderSaving(false)
     }
   }
 
@@ -201,10 +281,7 @@ export default function Workspaces() {
       await restoreWorkspaceRevision(selectedID, { path: historyPath, revision_id: revision.id, note: 'restored from web ui' })
       setNotice(`Restored ${historyPath} to revision ${revision.id}.`)
       await openHistory(historyPath)
-      if (tab === 'files') {
-        const result = await listWorkspaceTree(selectedID, { prefix: prefix || undefined, limit: 100 })
-        setEntries(result.data || [])
-      }
+      setTreeVersion((version) => version + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -259,7 +336,7 @@ export default function Workspaces() {
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
               placeholder="Workspace name"
-              style={{ flex: 1 }}
+              style={{ flex: 1, minWidth: 0 }}
             />
             <button onClick={() => void handleCreate()} disabled={creating || !newName.trim()}>
               {creating ? 'Creating…' : 'Create'}
@@ -315,28 +392,48 @@ export default function Workspaces() {
 
               {tab === 'files' && (
                 <div>
-                  <div className="row" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  <nav aria-label="Folders" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <button type="button" onClick={() => openFolder('')} disabled={!folder}>Root</button>
+                    {folderParts.map((part, index) => {
+                      const path = folderParts.slice(0, index + 1).join('/')
+                      return <button type="button" key={path} onClick={() => openFolder(path)} disabled={path === folder}>{part}</button>
+                    })}
+                  </nav>
+                  <form className="row" onSubmit={(event) => { event.preventDefault(); void handleCreateFolder() }} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
                     <input
-                      value={prefix}
-                      onChange={(event) => setPrefix(event.target.value)}
-                      placeholder="Filter by path prefix"
-                      style={{ flex: 1 }}
+                      aria-label="Folder name"
+                      value={folderName}
+                      onChange={(event) => setFolderName(event.target.value)}
+                      placeholder="Folder name"
+                      style={{ flex: 1, minWidth: 0 }}
                     />
-                  </div>
+                    <button type="submit" disabled={folderSaving || !folderName.trim()}>New folder</button>
+                  </form>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                     <thead>
                       <tr>
-                        <th style={{ textAlign: 'left' }}>Path</th>
+                        <th style={{ textAlign: 'left' }}>Name</th>
                         <th style={{ textAlign: 'right' }}>Size</th>
                         <th style={{ textAlign: 'left' }}>Updated</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {entries.map((entry) => (
+                      {directories.map(([name, explicit]) => (
+                        <tr key={name + '/'}>
+                          <td><button type="button" onClick={() => openFolder(prefix + name)}>{name}/</button></td>
+                          <td colSpan={2} />
+                          <td>
+                            {explicit && (
+                              <button type="button" disabled={folderSaving} onClick={() => void handleDeleteFolder(name)}>Delete empty folder</button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {files.map((entry) => (
                         <tr key={entry.path}>
                           <td style={{ fontFamily: 'monospace' }}>
-                            {entry.path}
+                            {entry.path.slice(prefix.length)}
                             {entry.path.includes('.saker-conflict-') && <span className="muted"> (conflict)</span>}
                           </td>
                           <td style={{ textAlign: 'right' }}>{formatBytes(entry.revision.bytes)}</td>
@@ -348,15 +445,15 @@ export default function Workspaces() {
                           </td>
                         </tr>
                       ))}
-                      {entries.length === 0 && (
+                      {!treeLoading && !treeHasMore && files.length === 0 && directories.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="muted">No files in this workspace yet.</td>
+                          <td colSpan={4} className="muted">This folder is empty.</td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                   {treeHasMore && (
-                    <button onClick={() => void loadMoreTree()} style={{ marginTop: '0.5rem' }}>
+                    <button disabled={treeLoading} onClick={() => void loadTree(treeCursor)} style={{ marginTop: '0.5rem' }}>
                       Load more
                     </button>
                   )}

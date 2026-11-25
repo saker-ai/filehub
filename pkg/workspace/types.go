@@ -75,8 +75,8 @@ type Workspace struct {
 }
 
 // Entry is the current state of one path inside a workspace.
-// Primary key is (WorkspaceID, Path). Directories are derived from file
-// paths; empty directories are not synchronized.
+// Primary key is (WorkspaceID, Path). Explicit directories have a separate
+// record and are included only in the directory-aware tree.
 type Entry struct {
 	WorkspaceID string
 	Path        string

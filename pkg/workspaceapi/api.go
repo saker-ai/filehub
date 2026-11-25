@@ -69,6 +69,8 @@ func Register(v1 *gin.RouterGroup, engine *gin.Engine, deps Deps) {
 	ws.PATCH("/:id", h.patchWorkspace)
 	ws.DELETE("/:id", h.deleteWorkspace)
 	ws.GET("/:id/tree", h.tree)
+	ws.PUT("/:id/directories", h.putDirectory)
+	ws.DELETE("/:id/directories", h.deleteDirectory)
 	ws.GET("/:id/entries", h.getEntry)
 	ws.GET("/:id/history", h.history)
 	ws.GET("/:id/changes", h.changes)
@@ -140,6 +142,12 @@ func writeErr(c *gin.Context, err error) {
 		writeError(c, http.StatusGone, "workspace_deleted", "workspace has been deleted")
 	case errors.Is(err, workspace.ErrConflictDigest):
 		writeError(c, http.StatusConflict, "idempotency_conflict", "idempotency key reused with a different request")
+	case errors.Is(err, workspace.ErrDirectoriesUnavailable):
+		writeError(c, http.StatusNotImplemented, "directories_unavailable", err.Error())
+	case errors.Is(err, workspace.ErrPathConflict):
+		writeError(c, http.StatusConflict, "path_conflict", err.Error())
+	case errors.Is(err, workspace.ErrDirectoryNotEmpty):
+		writeError(c, http.StatusConflict, "directory_not_empty", err.Error())
 	case errors.Is(err, workspace.ErrInvalidPath):
 		writeError(c, http.StatusUnprocessableEntity, "invalid_path", err.Error())
 	case errors.Is(err, workspace.ErrExcludedPath):

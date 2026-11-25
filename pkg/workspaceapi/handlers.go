@@ -159,13 +159,21 @@ func (h handler) deleteWorkspace(c *gin.Context) {
 
 func (h handler) tree(c *gin.Context) {
 	limit := workspace.ClampListLimit(queryInt(c, "limit", workspace.DefaultListLimit))
-	nodes, hasMore, err := h.svc().Tree(c.Request.Context(), tenant(c), c.Param("id"), c.Query("prefix"), c.Query("cursor"), limit)
+	list := h.svc().Tree
+	if c.Query("include_directories") == "true" {
+		list = h.svc().DirectoryTree
+	}
+	nodes, hasMore, err := list(c.Request.Context(), tenant(c), c.Param("id"), c.Query("prefix"), c.Query("cursor"), limit)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
 	data := make([]gin.H, 0, len(nodes))
 	for _, n := range nodes {
+		if n.Kind == workspace.TreeKindDirectory {
+			data = append(data, gin.H{"path": n.Path, "type": workspace.TreeKindDirectory})
+			continue
+		}
 		data = append(data, gin.H{
 			"path": n.Path,
 			"revision": gin.H{
@@ -184,6 +192,23 @@ func (h handler) tree(c *gin.Context) {
 		cursor = nodes[len(nodes)-1].Path
 	}
 	writeList(c, data, hasMore, cursor, nil)
+}
+
+func (h handler) putDirectory(c *gin.Context) {
+	p := c.Query("path")
+	if err := h.svc().CreateDirectory(c.Request.Context(), tenant(c), c.Param("id"), p); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"path": p, "type": workspace.TreeKindDirectory})
+}
+
+func (h handler) deleteDirectory(c *gin.Context) {
+	if err := h.svc().DeleteDirectory(c.Request.Context(), tenant(c), c.Param("id"), c.Query("path")); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (h handler) getEntry(c *gin.Context) {

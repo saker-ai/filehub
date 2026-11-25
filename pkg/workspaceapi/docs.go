@@ -35,10 +35,11 @@ type wsPatchInput struct {
 }
 
 type wsTreeInput struct {
-	ID     string `path:"id" required:"true"`
-	Prefix string `query:"prefix" doc:"Path prefix filter"`
-	Cursor string `query:"cursor" doc:"Last path of previous page"`
-	Limit  int    `query:"limit" default:"100"`
+	ID                 string `path:"id" required:"true"`
+	Prefix             string `query:"prefix" doc:"Path prefix filter"`
+	Cursor             string `query:"cursor" doc:"Last path of previous page"`
+	Limit              int    `query:"limit" default:"100"`
+	IncludeDirectories bool   `query:"include_directories" doc:"Include explicitly saved directory paths"`
 }
 
 type wsEntryInput struct {
@@ -159,6 +160,8 @@ func RegisterDocs(api huma.API) {
 	registerDoc[wsPatchInput, wsOutput](api, http.MethodPatch, "/v1/workspaces/{id}", "patch-workspace", "Update workspace name or description", security)
 	registerDoc[wsIDInput, wsOutput](api, http.MethodDelete, "/v1/workspaces/{id}", "delete-workspace", "Soft-delete a workspace", security)
 	registerDoc[wsTreeInput, wsOutput](api, http.MethodGet, "/v1/workspaces/{id}/tree", "workspace-tree", "List workspace tree entries", security)
+	registerDoc[wsEntryInput, wsOutput](api, http.MethodPut, "/v1/workspaces/{id}/directories", "workspace-put-directory", "Save a directory path", security)
+	registerDoc[wsEntryInput, wsOutput](api, http.MethodDelete, "/v1/workspaces/{id}/directories", "workspace-delete-directory", "Remove an empty directory", security)
 	registerDoc[wsEntryInput, wsOutput](api, http.MethodGet, "/v1/workspaces/{id}/entries", "workspace-entry", "Get one workspace entry", security)
 	registerDoc[wsHistoryInput, wsOutput](api, http.MethodGet, "/v1/workspaces/{id}/history", "workspace-history", "List revision history", security)
 	registerDoc[wsChangesInput, wsOutput](api, http.MethodGet, "/v1/workspaces/{id}/changes", "workspace-changes", "List incremental changes", security)

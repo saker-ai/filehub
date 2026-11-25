@@ -24,15 +24,17 @@ type AssetReferenceChecker interface {
 // Service implements the workspace domain logic on top of the consumer
 // defined Repository and AssetLookup interfaces.
 type Service struct {
-	repo   Repository
-	assets AssetLookup
-	limits Limits
+	repo        Repository
+	directories DirectoryRepo
+	assets      AssetLookup
+	limits      Limits
 }
 
 // New constructs a Service. limits are clamped so configuration can lower
 // but never raise the documented hard limits.
 func New(repo Repository, assets AssetLookup, limits Limits) *Service {
-	return &Service{repo: repo, assets: assets, limits: ClampLimits(limits)}
+	directories, _ := repo.(DirectoryRepo)
+	return &Service{repo: repo, directories: directories, assets: assets, limits: ClampLimits(limits)}
 }
 
 // Limits returns the effective hard limits.
@@ -163,7 +165,10 @@ func (s *Service) activeWorkspace(ctx context.Context, tenantID, id string) (*Wo
 
 // --- Browsing ------------------------------------------------------------
 
-// TreeNode is one tree row: the entry joined with its current revision.
+// TreeKindDirectory identifies a path with no file revision.
+const TreeKindDirectory = "directory"
+
+// TreeNode is a directory or a file entry joined with its current revision.
 type TreeNode struct {
 	Path       string
 	RevisionID string
@@ -178,16 +183,32 @@ type TreeNode struct {
 // Tree lists live entries sorted by path ascending (doc §8.2/§8.5).
 // cursor is the last path of the previous page.
 func (s *Service) Tree(ctx context.Context, tenantID, workspaceID, prefix, cursor string, limit int) ([]TreeNode, bool, error) {
+	return s.tree(ctx, tenantID, workspaceID, prefix, cursor, limit, s.repo.ListEntries)
+}
+
+// DirectoryTree includes explicitly saved directories alongside file entries.
+func (s *Service) DirectoryTree(ctx context.Context, tenantID, workspaceID, prefix, cursor string, limit int) ([]TreeNode, bool, error) {
+	if s.directories == nil {
+		return nil, false, ErrDirectoriesUnavailable
+	}
+	return s.tree(ctx, tenantID, workspaceID, prefix, cursor, limit, s.directories.ListTreeEntries)
+}
+
+func (s *Service) tree(ctx context.Context, tenantID, workspaceID, prefix, cursor string, limit int,
+	list func(context.Context, string, string, string, int) ([]*Entry, bool, error),
+) ([]TreeNode, bool, error) {
 	if _, err := s.activeWorkspace(ctx, tenantID, workspaceID); err != nil {
 		return nil, false, err
 	}
-	entries, hasMore, err := s.repo.ListEntries(ctx, workspaceID, prefix, cursor, ClampListLimit(limit))
+	entries, hasMore, err := list(ctx, workspaceID, prefix, cursor, ClampListLimit(limit))
 	if err != nil {
 		return nil, false, err
 	}
 	ids := make([]string, 0, len(entries))
 	for _, e := range entries {
-		ids = append(ids, e.RevisionID)
+		if e.RevisionID != "" {
+			ids = append(ids, e.RevisionID)
+		}
 	}
 	revisions, err := s.revisionMap(ctx, workspaceID, ids)
 	if err != nil {
@@ -196,7 +217,9 @@ func (s *Service) Tree(ctx context.Context, tenantID, workspaceID, prefix, curso
 	nodes := make([]TreeNode, 0, len(entries))
 	for _, e := range entries {
 		node := TreeNode{Path: e.Path, RevisionID: e.RevisionID, UpdatedAt: e.UpdatedAt}
-		if rev := revisions[e.RevisionID]; rev != nil {
+		if e.RevisionID == "" {
+			node.Kind = TreeKindDirectory
+		} else if rev := revisions[e.RevisionID]; rev != nil {
 			node.Kind = rev.Kind
 			node.AssetID = rev.AssetID
 			node.Bytes = rev.Bytes
@@ -573,6 +596,9 @@ func (s *Service) applyOperations(ctx context.Context, ws *Workspace, req Commit
 		}
 		switch op.Kind {
 		case KindPut:
+			if err := s.checkFileDestination(ctx, ws.ID, op.Path); err != nil {
+				return nil, err
+			}
 			if currentRevisionID == op.BaseRevisionID {
 				revision := s.newRevision(ws.ID, op.Path, KindPut, op.AssetID, assetsByID[op.AssetID], op.Mode, op.BaseRevisionID, actorID, req, now)
 				if err := s.writeRevisionAndChange(ctx, revision, sequence, op.Path, KindPut); err != nil {
@@ -588,6 +614,9 @@ func (s *Service) applyOperations(ctx context.Context, ws *Workspace, req Commit
 				continue
 			}
 			conflictPath := ConflictPath(op.Path, req.DeviceID, req.RequestID, s.limits)
+			if err := s.checkFileDestination(ctx, ws.ID, conflictPath); err != nil {
+				return nil, err
+			}
 			revision := s.newRevision(ws.ID, conflictPath, KindPut, op.AssetID, assetsByID[op.AssetID], op.Mode, op.BaseRevisionID, actorID, req, now)
 			if err := s.writeRevisionAndChange(ctx, revision, sequence, conflictPath, KindConflict); err != nil {
 				return nil, err
@@ -736,6 +765,9 @@ func (s *Service) Restore(ctx context.Context, tenantID, workspaceID, p, revisio
 		}
 		if ws.DeletedAt != nil {
 			return ErrGone
+		}
+		if err := s.checkFileDestination(ctx, workspaceID, p); err != nil {
+			return err
 		}
 		entry, err := s.currentEntry(ctx, workspaceID, p)
 		if err != nil {

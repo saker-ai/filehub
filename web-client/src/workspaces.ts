@@ -44,6 +44,15 @@ export type WorkspaceTreeList = {
   next_cursor?: string
 }
 
+export type WorkspaceDirectory = {
+  path: string
+  type: 'directory'
+}
+
+export type WorkspaceDirectoryTreeList = Omit<WorkspaceTreeList, 'data'> & {
+  data: (WorkspaceEntry | WorkspaceDirectory)[]
+}
+
 export type WorkspaceHistoryList = {
   object: 'list'
   data: WorkspaceRevision[]
@@ -165,6 +174,18 @@ export function deleteWorkspace(id: string): Promise<void> {
 
 export function listWorkspaceTree(id: string, params: { prefix?: string; cursor?: string; limit?: number } = {}): Promise<WorkspaceTreeList> {
   return request<WorkspaceTreeList>(withParams(workspaceURL(id, '/tree'), params))
+}
+
+export function listWorkspaceDirectoryTree(id: string, params: { prefix?: string; cursor?: string; limit?: number } = {}): Promise<WorkspaceDirectoryTreeList> {
+  return request<WorkspaceDirectoryTreeList>(withParams(workspaceURL(id, '/tree'), { ...params, include_directories: 'true' }))
+}
+
+export function createWorkspaceDirectory(id: string, path: string): Promise<WorkspaceDirectory> {
+  return request<WorkspaceDirectory>(withParams(workspaceURL(id, '/directories'), { path }), { method: 'PUT' })
+}
+
+export function deleteWorkspaceDirectory(id: string, path: string): Promise<void> {
+  return request<void>(withParams(workspaceURL(id, '/directories'), { path }), { method: 'DELETE' })
 }
 
 export function getWorkspaceEntry(id: string, path: string): Promise<WorkspaceEntry> {
