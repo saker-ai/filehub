@@ -254,6 +254,12 @@ curl 'http://127.0.0.1:17040/v1/workspaces/<id>/read-stats?days=30'
 The workspace API is documented in the OpenAPI schema at
 `/v1/openapi.json`. Metrics are exported as `filehub_workspace_*` counters.
 
+Embedded hosts can use the managed tree API in `pkg/workspace/gormrepo`
+to store folders and pinned file bindings under an authenticated tenant and
+owner. Managed trees reuse FileHub directory storage and are accessible through
+the host integration. The host can commit the tree and its own metadata through
+the same database transaction.
+
 ## Web UI
 
 The web UI is built into `web/static` by `make build` or `npm run build` under `web/`. Heavy preview dependencies, including model viewer, audio waveforms, markdown rendering, and syntax highlighting, are loaded only when an asset preview needs them. When Workspace Sync is enabled, the Workspaces page lets you browse folders, create and delete empty folders, and view file history, shares, and read stats.
